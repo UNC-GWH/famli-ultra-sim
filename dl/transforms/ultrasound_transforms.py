@@ -914,9 +914,9 @@ class LotusTrainTransforms:
                 ToTensord(keys=['img', 'seg']),
                 Resized(keys=['img', 'seg'], spatial_size=(height, height), mode=['bilinear', 'nearest']),
                 ScaleIntensityRanged(keys=['img'], a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),                
-                RandRotated(keys=['img', 'seg'], range_x=math.pi, mode=['bilinear', 'nearest'], prob=1.0),
+                RandRotated(keys=['img', 'seg'], range_x=math.pi, mode=['bilinear', 'nearest'], prob=1.0, padding_mode='zeros'),
                 RandAffined(keys=['img', 'seg'], prob=0.8, shear_range=(0.1, 0.1), mode=['bilinear', 'nearest'], padding_mode='zeros'),
-                RandAxisFlipd(keys=['img', 'seg'], prob=0.8),
+                RandAxisFlipd(keys=['img', 'seg'], prob=0.5),
                 RandZoomd(keys=['img', 'seg'], min_zoom=0.8, max_zoom=1.1, mode=['area', 'nearest'], prob=0.5, padding_mode='constant')
             ]
         )

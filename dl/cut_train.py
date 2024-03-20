@@ -162,7 +162,7 @@ if __name__ == '__main__':
     hparams_group.add_argument('--num_labels', help='Number of labels in the US model', type=int, default=340)
     
     hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
-    hparams_group.add_argument('--diffusor_w', help='Weight of the diffusor', type=float, default=2.0)
+    hparams_group.add_argument('--diffusor_w', help='Weight of the diffusor', type=float, default=0.0)
     hparams_group.add_argument('--use_pre_trained_lotus', help='Weights from diffusor model', type=int, default=0)
     hparams_group.add_argument('--warm_up_epochs_diffusor', help='Use the diffusor image for N number of epochs', type=int, default=0)
 
@@ -189,6 +189,7 @@ if __name__ == '__main__':
     hparams_group.add_argument('--mlp_dim', help='Dimension of the mlp layer', type=int, default=256)
     hparams_group.add_argument('--init_params', help='Use the dataframe to initialize the mean and std of the diffusor', type=str, default=None)
     hparams_group.add_argument('--acoustic_params', help='Use the dataframe to initialize the acoustic params', type=str, default=None)
+    hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=1)
     
     # hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=0)
     

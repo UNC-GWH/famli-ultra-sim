@@ -9,7 +9,7 @@ import torch
 from torch.distributed import is_initialized, get_rank
 
 from loaders.ultrasound_dataset import LotusDataModule
-from loaders.mr_us_dataset import VolumeSlicingProbeParamsDataset, MUSTUSDataModule
+from loaders.mr_us_dataset import VolumeSlicingProbeParamsDataset
 from transforms.ultrasound_transforms import LotusEvalTransforms, LotusTrainTransforms
 # from callbacks.logger import ImageLoggerLotusNeptune
 
@@ -57,36 +57,9 @@ def main(args):
     NN = getattr(lotus, args.nn)    
     model = NN(**vars(args))
 
-
-
-
-    # train_transform_label = LabelTrainTransforms()
-    # valid_transform_label = LabelEvalTransforms()
-
-    # img_label = sitk.ReadImage(args.labeled_img)
-
-    # labeled_ds_train = VolumeSlicingProbeParamsDataset(volume=img_label, df=df_train_params, mount_point=args.mount_point, transform=train_transform_label)
-    # labeled_ds_val = VolumeSlicingProbeParamsDataset(volume=img_label, df=df_val_params, mount_point=args.mount_point, transform=valid_transform_label)
-
-    # train_transform_us = RealUSTrainTransforms()
-    # valid_transform_us = RealEvalTransforms()
-
-    # us_ds_train = USDataset(df_train_us, args.mount_point, img_column='img_path', transform=train_transform_us, repeat_channel=False)
-    # us_ds_val = USDataset(df_val_us, args.mount_point, img_column='img_path', transform=valid_transform_us, repeat_channel=False)
-
-    # must_us_data = MUSTUSDataModule(labeled_ds_train, labeled_ds_val, us_ds_train, us_ds_val, batch_size=args.batch_size, num_workers=args.num_workers)
-
-
-    # must_us_data.setup()
-
-    # train_ds = must_us_data.train_dataloader()
-    # for idx, batch in enumerate(train_ds):
-    #     label, us = batch
-
-    #     print("__")
-    #     print(label.shape)
-    #     print(us.shape)
-    #     print("..")
+    if args.init_params:
+        df_params = pd.read_csv(args.init_params)
+        model.init_params(df_params)
 
     train_transform = LotusTrainTransforms()
     valid_transform = LotusEvalTransforms()
@@ -102,10 +75,10 @@ def main(args):
     early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.00, patience=args.patience, verbose=True, mode="min")
 
     callbacks=[early_stop_callback, checkpoint_callback]
-    logger = None
+    logger_neptune = None
 
     if args.neptune_tags:
-        logger = NeptuneLogger(
+        logger_neptune = NeptuneLogger(
             project='ImageMindAnalytics/Lotus',
             tags=args.neptune_tags,
             api_key=os.environ['NEPTUNE_API_TOKEN']
@@ -117,7 +90,7 @@ def main(args):
 
     
     trainer = Trainer(
-        logger=logger,
+        logger=logger_neptune,
         log_every_n_steps=args.log_steps,
         max_epochs=args.epochs,
         max_steps=args.steps,
@@ -153,7 +126,7 @@ if __name__ == '__main__':
     hparams_group.add_argument('--alpha_coeff_boundary_map', help='Lotus model', type=float, default=0.1)
     hparams_group.add_argument('--beta_coeff_scattering', help='Lotus model', type=float, default=10)
     hparams_group.add_argument('--tgc', help='Lotus model', type=int, default=8)
-    # hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=0)
+    hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=0)
     
     # hparams_group.add_argument('--parceptual_weight', help='Perceptual weight', type=float, default=1.0)
     # hparams_group.add_argument('--adversarial_weight', help='Adversarial weight', type=float, default=1.0)    
@@ -161,6 +134,7 @@ if __name__ == '__main__':
     
     
     hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+    hparams_group.add_argument('--momentum', help='Momentum for optimizer', type=float, default=0.00)
     hparams_group.add_argument('--kl_weight', help='Weight decay for optimizer', type=float, default=1e-6)    
 
 
@@ -174,7 +148,9 @@ if __name__ == '__main__':
     input_group.add_argument('--csv_valid', required=True, type=str, help='Valid CSV')    
     input_group.add_argument('--csv_test', required=True, type=str, help='Test CSV')  
     input_group.add_argument('--img_column', type=str, default='img_path', help='Column name for image')  
-    input_group.add_argument('--seg_column', type=str, default='seg_path', help='Column name for labeled/seg image')  
+    input_group.add_argument('--seg_column', type=str, default='seg_path', help='Column name for labeled/seg image') 
+    input_group.add_argument('--init_params', help='Use the dataframe to initialize the mean and std of the diffusor', type=str, default=None)
+     
     # input_group.add_argument('--labeled_img', required=True, type=str, help='Labeled volume to grap slices from')    
     # input_group.add_argument('--csv_train_us', required=True, type=str, help='Train CSV')
     # input_group.add_argument('--csv_valid_us', required=True, type=str, help='Valid CSV')    

@@ -16,6 +16,160 @@ import os
 
 from torchvision import transforms as T
 
+class CutG(pl.LightningModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters()
+        
+        self.D_Y = Discriminator()
+        self.G = Generator()
+        self.H = Head()
+
+        self.l1 = nn.L1Loss()
+        self.mse = nn.MSELoss()
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='none')
+
+        # lambda_lr = lambda epoch: 1.0 - max(0, epoch - config.NUM_EPOCHS / 2) / (config.NUM_EPOCHS / 2)
+        # self.scheduler_disc = lr_scheduler.LambdaLR(self.opt_disc, lr_lambda=lambda_lr)
+        # self.scheduler_gen = lr_scheduler.LambdaLR(self.opt_gen, lr_lambda=lambda_lr)
+        # self.scheduler_mlp = lr_scheduler.LambdaLR(self.opt_head, lr_lambda=lambda_lr)
+
+        self.automatic_optimization = False
+
+    def configure_optimizers(self):
+        opt_gen = optim.AdamW(
+            self.G.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay            
+        )
+        opt_disc = optim.AdamW(
+            self.D_Y.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay
+        )        
+        opt_head = optim.AdamW(
+            self.H.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay
+        )
+
+        return [opt_gen, opt_disc, opt_head]
+
+    def forward(self, X):
+        return self.G(X)
+
+    # def scheduler_step(self):
+    #     self.scheduler_disc.step()
+    #     self.scheduler_gen.step()
+    #     self.scheduler_mlp.step()
+
+    def set_requires_grad(self, nets, requires_grad=False):
+        """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+        Parameters:
+            nets (network list)   -- a list of networks
+            requires_grad (bool)  -- whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
+
+    def training_step(self, train_batch, batch_idx):
+
+        # Y is the target
+        X, Y = train_batch
+
+        opt_gen, opt_disc, opt_head = self.optimizers()
+
+        Y_fake = self.G(X)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y)           
+
+        # update D
+        self.set_requires_grad(self.D_Y, True)
+        opt_disc.zero_grad()
+        loss_d = self.compute_D_loss(Y, Y_fake)
+        loss_d.backward()
+        opt_disc.step()
+
+        # update G
+        self.set_requires_grad(self.D_Y, False)
+        opt_gen.zero_grad()
+        opt_head.zero_grad()
+        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+
+        loss_g.backward()
+        opt_gen.step()
+        opt_head.step()
+        
+        self.log("train_loss_g", loss_g)
+        self.log("train_loss_d", loss_d)
+
+    def validation_step(self, val_batch, batch_idx):
+
+        X, Y = val_batch
+
+        Y_fake = self.G(X)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y)           
+
+        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+
+        self.log("val_loss", loss_g, sync_dist=True)
+
+    def compute_D_loss(self, Y, Y_fake):
+        # Fake
+        fake = Y_fake.detach()
+        pred_fake = self.D_Y(fake)
+        loss_D_fake = self.mse(pred_fake, torch.zeros_like(pred_fake))
+        # Real
+        pred_real = self.D_Y(Y)
+        loss_D_real = self.mse(pred_real, torch.ones_like(pred_real))
+
+        loss_D_Y = (loss_D_fake + loss_D_real) / 2
+        return loss_D_Y
+
+    def compute_G_loss(self, X, Y, Y_fake, Y_idt = None):
+        fake = Y_fake
+        pred_fake = self.D_Y(fake)
+        loss_G_adv = self.mse(pred_fake, torch.ones_like(pred_fake))
+
+        loss_NCE = self.calculate_NCE_loss(X, Y_fake)
+        if self.hparams.lambda_y > 0:
+            loss_NCE_Y = self.calculate_NCE_loss(Y, Y_idt)
+            loss_NCE = (loss_NCE + loss_NCE_Y) * 0.5
+
+        loss_G = loss_G_adv + loss_NCE
+        return loss_G
+
+    def calculate_NCE_loss(self, src, tgt):
+        feat_q, patch_ids_q = self.G(tgt, encode_only=True)
+        feat_k, _ = self.G(src, encode_only=True, patch_ids=patch_ids_q)
+
+        feat_k_pool = self.H(feat_k)
+        feat_q_pool = self.H(feat_q)
+
+        total_nce_loss = 0.0
+        for f_q, f_k in zip(feat_q_pool, feat_k_pool):
+            loss = self.patch_nce_loss(f_q, f_k)
+            total_nce_loss += loss.mean()
+        return total_nce_loss / 5
+
+    def patch_nce_loss(self, feat_q, feat_k):
+        feat_k = feat_k.detach()
+        out = torch.mm(feat_q, feat_k.transpose(1, 0)) / 0.07
+        loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
+        return loss
 
 class Cut(pl.LightningModule):
     def __init__(self, **kwargs):
@@ -27,15 +181,15 @@ class Cut(pl.LightningModule):
 
         self.USR = UltrasoundRendering(**kwargs)
 
-        if hasattr(self.hparams, 'use_pre_trained_lotus') and self.hparams.use_pre_trained_lotus and os.path.exists('train_output/ultra-sim/rendering/v0.1/epoch=199-val_loss=0.04.ckpt'):
-            usr = UltrasoundRendering.load_from_checkpoint('train_output/ultra-sim/rendering/v0.1/epoch=199-val_loss=0.04.ckpt')        
+        # if hasattr(self.hparams, 'use_pre_trained_lotus') and self.hparams.use_pre_trained_lotus and os.path.exists('train_output/ultra-sim/rendering/v0.1/epoch=199-val_loss=0.04.ckpt'):
+        #     usr = UltrasoundRendering.load_from_checkpoint('train_output/ultra-sim/rendering/v0.1/epoch=199-val_loss=0.04.ckpt')        
             
             
-            self.USR.acoustic_impedance_dict = usr.acoustic_impedance_dict
-            self.USR.attenuation_dict = usr.attenuation_dict
-            self.USR.mu_0_dict = usr.mu_0_dict
-            self.USR.mu_1_dict = usr.mu_1_dict
-            self.USR.sigma_0_dict = usr.sigma_0_dict
+        #     self.USR.acoustic_impedance_dict = usr.acoustic_impedance_dict
+        #     self.USR.attenuation_dict = usr.attenuation_dict
+        #     self.USR.mu_0_dict = usr.mu_0_dict
+        #     self.USR.mu_1_dict = usr.mu_1_dict
+        #     self.USR.sigma_0_dict = usr.sigma_0_dict
 
         self.G = Generator()
         self.H = Head()
@@ -105,7 +259,7 @@ class Cut(pl.LightningModule):
                 for param in net.parameters():
                     param.requires_grad = requires_grad
 
-    def on_train_start(self):
+    def on_fit_start(self):
 
         # Define the file names directly without using out_dir
         grid_t_file = 'grid_t.pt'
@@ -146,7 +300,7 @@ class Cut(pl.LightningModule):
             # print("Grids SAVED!")
             # print(self.grid_t.shape, self.inverse_grid_t.shape, self.mask_fan_t.shape)
         
-        else:
+        elif not hasattr(self, 'grid_t'):
             # Load tensors directly from the current directory
             self.grid_t = torch.load(grid_t_file).to(self.device)
             self.inverse_grid_t = torch.load(inverse_grid_t_file).to(self.device)
@@ -169,7 +323,7 @@ class Cut(pl.LightningModule):
 
         X_ = self.USR(X_s, grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
         X = self.transform_us(X_)
-        Y_fake = self.G(X)
+        Y_fake = self.G(X)*self.transform_us(mask_fan)
 
         Y_idt = None
         if self.hparams.lambda_y:
@@ -188,8 +342,8 @@ class Cut(pl.LightningModule):
         opt_head.zero_grad()
         loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
 
-        if self.current_epoch < self.hparams.warm_up_epochs_diffusor:
-            loss_g = loss_g + self.hparams.diffusor_w*self.mse(X_, self.USR.add_speckle_noise(X_x)*mask_fan)
+        if self.current_epoch < self.hparams.warm_up_epochs_diffusor and self.hparams.diffusor_w > 0.0:
+            loss_g = loss_g + self.hparams.diffusor_w*self.mse(X_, X_x)
 
         loss_g.backward()
         opt_gen.step()
@@ -205,13 +359,19 @@ class Cut(pl.LightningModule):
         X_x = labeled['img']
         X_s = labeled['seg']
 
-        X_ = self.USR(X_s)
+        grid_idx = torch.randint(low=0, high=self.hparams.n_grids - 1, size=(X_s.shape[0],))
+        
+        grid = self.grid_t[grid_idx]
+        inverse_grid = self.inverse_grid_t[grid_idx]
+        mask_fan = self.mask_fan_t[grid_idx]
+
+        X_ = self.USR(X_s, grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
         X = self.transform_us(X_)
-        Y_fake = self.G(X)
+        Y_fake = self.G(X)*self.transform_us(mask_fan)
 
         Y_idt = None
         if self.hparams.lambda_y:
-            Y_idt = self.G(Y)
+            Y_idt = self.G(Y)           
         
         loss_G = self.compute_G_loss(X, Y, Y_fake, Y_idt)
 

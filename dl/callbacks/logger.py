@@ -533,7 +533,7 @@ class ImageLoggerMustUSNeptune(Callback):
 
 
 class ImageLoggerLotusNeptune(Callback):
-    def __init__(self, num_images=16, log_steps=100):
+    def __init__(self, num_images=4, log_steps=100):
         self.log_steps = log_steps
         self.num_images = num_images
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, unused=0):
@@ -546,12 +546,14 @@ class ImageLoggerLotusNeptune(Callback):
 
                 max_num_image = min(x_label.shape[0], self.num_images)
 
-                x_lotus_us = pl_module(x_label)[0]
+                x_lotus_us = pl_module(x_label)
+                if isinstance(x_lotus_us, tuple):
+                    x_lotus_us = x_lotus_us[0]
                 x_lotus_us = torch.clip(x_lotus_us, min=0.0, max=1.0)
 
 
-                x_label = x_label/torch.max(x_label)
-                grid_x_label = torchvision.utils.make_grid(x_label[0:max_num_image])
+                x_label_ = x_label/torch.max(x_label)
+                grid_x_label = torchvision.utils.make_grid(x_label_[0:max_num_image])
                 grid_x_lotus_us = torchvision.utils.make_grid(x_lotus_us[0:max_num_image])
                 
                 fig = plt.figure(figsize=(7, 9))
@@ -570,6 +572,16 @@ class ImageLoggerLotusNeptune(Callback):
                 ax = plt.imshow(grid_x_us.permute(1, 2, 0).cpu().numpy())
                 trainer.logger.experiment["images/x_us"].upload(fig)
                 plt.close()
+
+                if hasattr(pl_module, 'us_simu_traced'):
+                    x_cut = pl_module.render_cut(x_label[0:max_num_image])
+                    x_cut = torch.clip(x_cut, min=0.0, max=1.0)
+                    grid_cut_us = torchvision.utils.make_grid(x_cut)
+                
+                    fig = plt.figure(figsize=(7, 9))
+                    ax = plt.imshow(grid_cut_us.permute(1, 2, 0).cpu().numpy())
+                    trainer.logger.experiment["images/x_cut"].upload(fig)
+                    plt.close()
 
 
 class ImageLoggerLotusV2Neptune(Callback):
@@ -620,6 +632,7 @@ class ImageLoggerLotusV2Neptune(Callback):
                 ax = plt.imshow(grid_x_us.permute(1, 2, 0).cpu().numpy())
                 trainer.logger.experiment["images/x_us"].upload(fig)
                 plt.close()
+                    
 
 class UltrasoundRenderingDiffLogger(Callback):
     def __init__(self, num_images=8, log_steps=100):
@@ -700,7 +713,7 @@ class CutLogger(Callback):
                     if isinstance(x_lotus_fake, tuple):
                         x_lotus_fake = x_lotus_fake[0]
 
-                    x_lotus_fake = x_lotus_fake*mask_fan
+                    x_lotus_fake = x_lotus_fake*pl_module.transform_us(mask_fan)
                 
                 x_lotus_us = x_lotus_us - torch.min(x_lotus_us)
                 x_lotus_us = x_lotus_us/torch.max(x_lotus_us)

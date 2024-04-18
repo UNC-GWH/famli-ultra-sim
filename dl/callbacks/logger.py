@@ -754,6 +754,42 @@ class CutLogger(Callback):
                 trainer.logger.experiment["images/x_us"].upload(fig)
                 plt.close()
 
+class CutGLogger(Callback):
+    def __init__(self, num_images=4, log_steps=100):
+        self.log_steps = log_steps
+        self.num_images = num_images
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, unused=0):
+        
+        if batch_idx % self.log_steps == 0:
+            with torch.no_grad():
+
+                X, Y = batch
+
+                max_num_image = min(X.shape[0], self.num_images)
+
+                Y_fake = pl_module(X)
+                
+                Y_fake = torch.clip(Y_fake, min=0.0, max=1.0)
+
+                grid_x = torchvision.utils.make_grid(X[0:max_num_image], nrow=2)
+                fig = plt.figure(figsize=(7, 9))
+                ax = plt.imshow(grid_x.permute(1, 2, 0).cpu().numpy())
+                trainer.logger.experiment["images/x"].upload(fig)
+                plt.close()
+
+                grid_y_fake = torchvision.utils.make_grid(Y_fake[0:max_num_image], nrow=2)
+                fig = plt.figure(figsize=(7, 9))
+                ax = plt.imshow(grid_y_fake.permute(1, 2, 0).cpu().numpy())
+                trainer.logger.experiment["images/y_fake"].upload(fig)
+                plt.close()
+
+                grid_y = torchvision.utils.make_grid(Y[0:max_num_image], nrow=2)
+                fig = plt.figure(figsize=(7, 9))
+                ax = plt.imshow(grid_y.permute(1, 2, 0).cpu().numpy())
+                trainer.logger.experiment["images/y"].upload(fig)
+                plt.close()
+                
+
 
 class SPADELogger(Callback):
     def __init__(self, num_images=8, log_steps=100):

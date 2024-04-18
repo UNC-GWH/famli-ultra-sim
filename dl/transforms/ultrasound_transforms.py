@@ -730,10 +730,10 @@ class RealUSTrainTransforms:
         # image augmentation functions
         self.train_transform = transforms.Compose(
             [
-                EnsureChannelFirst(strict_check=False, channel_dim=0),
+                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),
                 Resize(spatial_size=(height, height), mode='bilinear'),
-                FirstChannelOnly(),
                 ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
+                Transpose(),
                 transforms.RandomHorizontalFlip()
             ]
         )
@@ -746,10 +746,10 @@ class RealUSEvalTransforms:
 
         self.eval_transform = transforms.Compose(
             [
-                EnsureChannelFirst(strict_check=False, channel_dim=0),
-                FirstChannelOnly(),
-                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),                
-                Resize(spatial_size=(height, height), mode='bilinear')
+                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),
+                Resize(spatial_size=(height, height), mode='bilinear'),
+                Transpose(),
+                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
             ]
         )
 

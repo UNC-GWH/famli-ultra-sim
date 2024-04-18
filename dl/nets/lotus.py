@@ -264,7 +264,7 @@ class UltrasoundRendering(pl.LightningModule):
         dists = torch.abs(z_vals[..., :-1, None] - z_vals[..., 1:, None])     # dists.shape=(W, H-1, 1)
         dists = dists.squeeze(-1)                                             # dists.shape=(W, H-1)
         dists = torch.cat([dists, dists[:, -1, None]], dim=-1)                # dists.shape=(W, H)
-
+        
         attenuation = torch.exp(-attenuation_medium_map * dists)
         attenuation_total = torch.cumprod(attenuation, dim=3, dtype=torch.float32, out=None)
 
@@ -307,9 +307,9 @@ class UltrasoundRendering(pl.LightningModule):
 
         return intensity_map, attenuation_total, reflection_total_plot, scatterers_map, scattering_probability, border_convolution, texture_noise, b, r
     
-    def render_rays(self, W, H):
+    def render_rays(self, W, H, device='cuda'):
         N_rays = W 
-        t_vals = torch.linspace(0., 1., H, device=self.device)
+        t_vals = torch.linspace(0., 1., H, device=device)
         z_vals = t_vals.unsqueeze(0).expand(N_rays , -1) * 4 
 
         return z_vals
@@ -372,7 +372,7 @@ class UltrasoundRendering(pl.LightningModule):
         refl_map = div ** 2
         refl_map = torch.sigmoid(refl_map)      # 1 / (1 + (-refl_map).exp())
 
-        z_vals = self.render_rays(x.shape[2], x.shape[3])
+        z_vals = self.render_rays(x.shape[2], x.shape[3], device=x.device)
 
         ret_list = self.rendering(x.shape, attenuation_medium_map, mu_0_map, mu_1_map, sigma_0_map, z_vals=z_vals, refl_map=refl_map, boundary_map=boundary_map)
 
@@ -1479,7 +1479,7 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
         refl_map = div ** 2
         refl_map = torch.sigmoid(refl_map)      # 1 / (1 + (-refl_map).exp())
 
-        z_vals = self.render_rays(x.shape[2], x.shape[3])
+        z_vals = self.render_rays(x.shape[2], x.shape[3], device=x.device)
 
         # if CLAMP_VALS:
         #     attenuation_medium_map = torch.clamp(attenuation_medium_map, 0, 10)

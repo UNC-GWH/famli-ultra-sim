@@ -14,13 +14,14 @@ import pandas as pd
 
 from utils import *
 
-vc = vvc.ViewComponents()
+vc = vvc.ViewComponents(mount_point="/Volumes/med/GWH")
 
 # Initialize the trame server with a single page layout
 server = get_server(client_type = "vue2")
 state, ctrl = server.state, server.controller
 
 state.study_btn_colors = {}
+state.load_study_btn = []
 
 def OnMouseWheel():
     vc.OnMouseWheel()
@@ -136,18 +137,21 @@ with SinglePageWithDrawerLayout(server) as layout:
     layout.title.set_text("3D Model QC App")
 
     with layout.toolbar:
-        # toolbar components
-        pass
+        # with vuetify.VBtn(icon=True, click=LoadStudies):
+        #     vuetify.VIcon("mdi-content-load")
+        with vuetify.VBtn(icon=True, click=Save):
+            vuetify.VIcon("mdi-content-save")
 
     with layout.drawer as drawer:
         with vuetify.VContainer(
                 fluid=True,
-                classes="fill-height",
-            ):
+                classes="fill-height"
+        ):
             with vuetify.VList():
                 for idx, study_id in enumerate(vc.study_ids):
                     with vuetify.VListItem():
                         vuetify.VBtn(block=True, children=f"{study_id}", click=lambda study_id=study_id, idx=idx: LoadStudy(idx, study_id), color=(f"study_btn_color_{idx}", vc.GetStudyButtonColor(study_id)))
+
                             
     with layout.content:
         with vuetify.VContainer(
@@ -158,8 +162,6 @@ with SinglePageWithDrawerLayout(server) as layout:
                 with vuetify.VCol(cols=6):
                     with vuetify.VToolbar():
                         vuetify.VSelect(items=("img_tags", []), v_model=("img_tag", ""))
-                        with vuetify.VBtn(icon=True, click=Save):
-                            vuetify.VIcon("mdi-content-save")
 
                     with vtk_widgets.VtkRemoteView(vc.resliceViewer.GetRenderWindow(), 
                                                     ref="img_view",

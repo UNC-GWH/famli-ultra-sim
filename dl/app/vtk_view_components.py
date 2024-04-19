@@ -22,15 +22,16 @@ import os
 import glob 
 
 class ViewComponents:
-    def __init__(self):
+    def __init__(self, mount_point=None, num_bottom_renderers=5):
         
         self.image_data = None
-        self.mount_point = "/Volumes/med/GWH/Groups/FAMLI/Shared/C1_ML_Analysis/"
-        # self.image_data = readImage("/Users/juan/Desktop/M.dcm")
-        # image_data = readImage("/Users/juan/Desktop/a622d9a6-da7f-4975-af79-77db76f69792.nrrd")
-        # image_data = readImage("c:/Users/juan/Desktop/M.dcm")
-        
-        # # Create the first VTK render window and renderer
+        self.mount_point = mount_point
+
+        self.study_ids = []
+        self.current_study_idx = -1
+        self.study_id = ""
+        self.study_images = {}
+
         renderWindowInteractor = vtkRenderWindowInteractor()
         self.resliceViewer = vtkResliceImageViewer()
         self.resliceViewer.SetupInteractor(renderWindowInteractor)
@@ -39,6 +40,10 @@ class ViewComponents:
         self.renderer_dict = {}
 
         self.renderer_dict["main"] = createRenderer()
+
+        self.main_transform = vtk.vtkTransform()
+        self.main_actor, self.main_mapper = createActor(surf=None, return_mapper=True)
+
 
         axes_actor = vtkAxesActor()
         axes_actor.AxisLabelsOn()
@@ -55,9 +60,22 @@ class ViewComponents:
 
         self.renderer_dict["main"]["renderer"].AddActor(axes_actor)
 
-        self.df_fn = os.path.join(self.mount_point, "famli_ml_lists/AnalysisLists/Juan/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
-        self.df = pd.read_csv(self.df_fn)
+        self.template_surf = []
+        self.renderer_dict["bottom"] = []
+        self.current_actor_index = 0
 
+        for i in range(num_bottom_renderers):
+            ren_d = createRenderer()
+            self.renderer_dict["bottom"].append(ren_d)
+
+        if self.mount_point is not None:
+            self.initialize()
+        
+    def initialize(self):
+        
+
+        self.df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
+        self.df = pd.read_csv(self.df_fn)
 
         ext = os.path.splitext(self.df_fn)[1]
         self.studies_fn = self.df_fn.replace(ext, "_studies" + ext)
@@ -76,78 +94,55 @@ class ViewComponents:
             self.df_studies = pd.read_csv(self.studies_fn, index_col="study_id")
         # print(self.df_studies)
         self.study_ids = self.df["study_id"].drop_duplicates().tolist()
-        
-        self.current_study_idx = -1
-        self.study_id = ""
-        self.study_images = {}
 
-
-        mount_point_simulated = os.path.join(self.mount_point, "src/blender/simulated_data_export/")
-        model_fn = os.path.join(mount_point_simulated, "breech_0/fetus/Fetus_Model.stl")
-
-        self.main_actor, self.main_mapper = readCreateActor(model_fn, return_mapper=True)
-
-        self.renderer_dict["main"]["renderer"].AddActor(self.main_actor)
-
-        self.template_arr = ["src/diffusion-models/blender/studies/FAM-025-0499-5/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1336-3/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1398-3/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0447-5/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0615-3/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1453-3/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0626-2/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0664-4/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0749-4/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1485-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1489-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0754-2/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1491-2/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0941-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0795-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0869-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1275-1/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-0950-4/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/studies/FAM-025-1144-4/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
-            "src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl"]
-        
-        self.template_surf = []
-        self.renderer_dict["bottom"] = []
-        self.current_actor_index = 0
-
-        for i in range(5):
-            ren_d = createRenderer()
-            actor, mapper = createActor(surf=None, return_mapper=True)
-
-            ren_d["mapper"] = mapper
-            ren_d["renderer"].AddActor(actor)
-
-            self.renderer_dict["bottom"].append(ren_d)
+        self.template_arr = ["Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0499-5/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1336-3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1398-3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0447-5/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0615-3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1453-3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0626-2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0664-4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0749-4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1485-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1489-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0754-2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1491-2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0941-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0795-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0869-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1275-1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0950-4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1144-4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl"]
 
         for template_fn in self.template_arr:
             surf = readSurf(os.path.join(self.mount_point, template_fn))
-
-            # actor = createActor(surf)
-
             self.template_surf.append(surf)
-            # self.template_actors.append(actor)
-            # self.renderer_dict["bottom"].append(createRenderer())
-            # self.renderer_dict["bottom"][-1]["renderer"].AddActor(actor)
         
+        self.main_mapper.SetInputData(self.template_surf[0])
+        self.renderer_dict["main"]["renderer"].AddActor(self.main_actor)
+
+        bottom = self.renderer_dict["bottom"]
+        for ren_d in bottom:
+            actor, mapper = createActor(surf=None, return_mapper=True)
+            ren_d["mapper"] = mapper
+            ren_d["renderer"].AddActor(actor)
         self.NextTemplateActors()
 
         self.grid_sweeps = {}
-        model_grid_dir = os.path.join(mount_point_simulated, "breech_0/paths")
+        model_grid_dir = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/scene_models/paths")
         for sweep_fn in glob.glob(os.path.join(model_grid_dir, '*.vtk')):
             key = os.path.basename(sweep_fn).split(".")[0].replace("_path", "")
             self.grid_sweeps[key] = readSurf(sweep_fn)
@@ -156,21 +151,19 @@ class ViewComponents:
             self.renderer_dict["main"]["renderer"].AddActor(actor)
 
         self.sweep_actors = []
-        model_sweep_dir = os.path.join(mount_point_simulated, "breech_0/tube")
+        model_sweep_dir = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/scene_models/tube")
         for sweep_fn in glob.glob(os.path.join(model_sweep_dir, '*.stl')):
             self.sweep_actors.append(readCreateActor(sweep_fn))
         for actor in self.sweep_actors:
             actor.GetProperty().SetOpacity(0.5)
             self.renderer_dict["main"]["renderer"].AddActor(actor)
 
-        ultrasound_fan_fn = os.path.join(mount_point_simulated, "breech_0/probe/ultrasound_fan_2d_iq.stl")
+        ultrasound_fan_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/scene_models/probe/ultrasound_fan_2d_iq.stl")
 
         self.ultrasound_fan_actor = readCreateActor(ultrasound_fan_fn)
         self.ultrasound_fan_actor_transform = vtkTransform()
 
         self.renderer_dict["main"]["renderer"].AddActor(self.ultrasound_fan_actor)
-
-        self.main_transform = vtk.vtkTransform()
         
 
     def Interpolate_coordinates(self, tau, sweep_key):
@@ -291,11 +284,12 @@ class ViewComponents:
     def LoadTemplateActors(self, idx):
         surf_idx = self.current_actor_index - (5 - idx)
         self.main_mapper.SetInputData(self.template_surf[surf_idx])
+
     def NextTemplateActors(self):
 
         bottom = self.renderer_dict["bottom"]
 
-        for ren_idx, ren_d in enumerate(bottom):
+        for ren_d in bottom:
             ren_d["mapper"].SetInputData(self.template_surf[self.current_actor_index])
             
             self.current_actor_index = self.current_actor_index + 1 

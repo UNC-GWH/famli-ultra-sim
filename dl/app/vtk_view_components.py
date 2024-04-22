@@ -97,6 +97,7 @@ class ViewComponents:
             self.df_studies["ry"] = 0.0
             self.df_studies["rz"] = 0.0
             self.df_studies["completed"] = 0
+            self.df_studies["template_fn"] = ""
         else:
             self.df_studies = pd.read_csv(self.studies_fn, index_col="study_id")
         # print(self.df_studies)
@@ -270,6 +271,15 @@ class ViewComponents:
         if study_id in self.df_studies.index:
             return self.df_studies.loc[study_id, ["tx", "ty", "tz", "rx", "ry", "rz"]].values
         return [0, 0, 0, 0, 0, 0]
+    
+    def UpdateStudyTemplate(self, study_id):
+        if study_id in self.df_studies.index:
+            template_fn = self.df_studies.at[study_id, "template_fn"]
+            surf_idx = self.template_arr.index(template_fn)
+            if surf_idx >= 0 and surf_idx < len(self.template_surf):
+                self.main_mapper.SetInputData(self.template_surf[surf_idx])
+            else:
+                print("Template not found")
 
     def Save(self, tx, ty, tz, rx, ry, rz):
         # Check if the specified ID exists in the DataFrame
@@ -282,6 +292,7 @@ class ViewComponents:
             self.df_studies.at[self.study_id, "ry"] = ry
             self.df_studies.at[self.study_id, "rz"] = rz
             self.df_studies.at[self.study_id, "completed"] = 1
+            self.df_studies.at[self.study_id, "template_fn"] = self.template_arr[self.current_actor_index]
             # Write the updated DataFrame back to the file
             self.df_studies.to_csv(self.studies_fn)
     

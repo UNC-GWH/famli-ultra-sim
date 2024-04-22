@@ -21,6 +21,9 @@ from utils import *
 import os
 import glob 
 
+from datetime import datetime
+
+
 class ViewComponents:
     def __init__(self, mount_point=None, num_bottom_renderers=5):
         
@@ -277,6 +280,7 @@ class ViewComponents:
             template_fn = self.df_studies.at[study_id, "template_fn"]
             if template_fn in self.template_arr:
                 surf_idx = self.template_arr.index(template_fn)
+                print("Loading template:", template_fn, surf_idx)
                 if surf_idx >= 0 and surf_idx < len(self.template_surf):
                     self.main_mapper.SetInputData(self.template_surf[surf_idx])
                 else:
@@ -293,9 +297,14 @@ class ViewComponents:
             self.df_studies.at[self.study_id, "ry"] = ry
             self.df_studies.at[self.study_id, "rz"] = rz
             self.df_studies.at[self.study_id, "completed"] = 1
-            self.df_studies.at[self.study_id, "template_fn"] = self.template_arr[self.current_actor_index]
+            
+            self.df_studies.at[self.study_id, "template_fn"] = self.template_arr[self.current_surf_idx]
             # Write the updated DataFrame back to the file
             self.df_studies.to_csv(self.studies_fn)
+            self.df_studies.to_csv(self.studies_fn + str(datetime.today().strftime('%Y-%m-%d-%H')))
+            
+            
+            print("Saved!")
     
     def GetStudyButtonColor(self, study_id):
         if study_id in self.df_studies.index:
@@ -303,8 +312,8 @@ class ViewComponents:
         return "#E0E0E0"
     
     def LoadTemplateActors(self, idx):
-        surf_idx = self.current_actor_index - (5 - idx)
-        self.main_mapper.SetInputData(self.template_surf[surf_idx])
+        self.current_surf_idx = self.current_actor_index - (5 - idx)
+        self.main_mapper.SetInputData(self.template_surf[self.current_surf_idx])
 
     def NextTemplateActors(self):
 

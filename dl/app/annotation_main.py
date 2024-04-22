@@ -59,9 +59,9 @@ def LoadStudy(idx, study_id):
 
     vc.LoadImg(img_tag)
     vc.UpdateFan()
-
-    vc.UpdateStudyTemplate(study_id)
+    
     tx, ty, tz, rx, ry, rz = vc.GetStudyTransform(study_id)
+    vc.UpdateStudyTemplate(study_id)
 
     print(f"tx: {tx}, ty: {ty}, tz: {tz}, rx: {rx}, ry: {ry}, rz: {rz}")
     

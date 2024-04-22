@@ -36,6 +36,10 @@ class ViewComponents:
         self.resliceViewer = vtkResliceImageViewer()
         self.resliceViewer.SetupInteractor(renderWindowInteractor)
         self.resliceViewer.GetRenderWindow().SetOffScreenRendering(1)
+        img = vtk.vtkImageData()
+        img.SetDimensions(1, 1, 1)
+        img.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+        self.resliceViewer.SetInputData(img)
 
         self.renderer_dict = {}
 
@@ -69,12 +73,15 @@ class ViewComponents:
             self.renderer_dict["bottom"].append(ren_d)
 
         if self.mount_point is not None:
-            self.initialize()
+            self.Initialize()
         
-    def initialize(self):
-        
+    def Initialize(self):
 
         self.df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
+
+        if not os.path.exists(self.df_fn):
+            return False
+        
         self.df = pd.read_csv(self.df_fn)
 
         ext = os.path.splitext(self.df_fn)[1]
@@ -164,6 +171,8 @@ class ViewComponents:
         self.ultrasound_fan_actor_transform = vtkTransform()
 
         self.renderer_dict["main"]["renderer"].AddActor(self.ultrasound_fan_actor)
+
+        return True
         
 
     def Interpolate_coordinates(self, tau, sweep_key):

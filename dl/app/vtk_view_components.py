@@ -275,11 +275,12 @@ class ViewComponents:
     def UpdateStudyTemplate(self, study_id):
         if study_id in self.df_studies.index:
             template_fn = self.df_studies.at[study_id, "template_fn"]
-            surf_idx = self.template_arr.index(template_fn)
-            if surf_idx >= 0 and surf_idx < len(self.template_surf):
-                self.main_mapper.SetInputData(self.template_surf[surf_idx])
-            else:
-                print("Template not found")
+            if template_fn in self.template_arr:
+                surf_idx = self.template_arr.index(template_fn)
+                if surf_idx >= 0 and surf_idx < len(self.template_surf):
+                    self.main_mapper.SetInputData(self.template_surf[surf_idx])
+                else:
+                    print("Template not found")
 
     def Save(self, tx, ty, tz, rx, ry, rz):
         # Check if the specified ID exists in the DataFrame

@@ -34,6 +34,7 @@ class ViewComponents:
         self.current_study_idx = -1
         self.study_id = ""
         self.study_images = {}
+        self.user = ""
 
         renderWindowInteractor = vtkRenderWindowInteractor()
         self.resliceViewer = vtkResliceImageViewer()
@@ -77,10 +78,18 @@ class ViewComponents:
 
         if self.mount_point is not None:
             self.Initialize()
-        
+    def MakeCopyForUser(self):
+
+        orig_df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
+        df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
+
+        if not os.path.exists(df_fn):
+            df = pd.read_csv(orig_df_fn)
+            df.to_csv(df_fn, index=False)
+
     def Initialize(self):
 
-        self.df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
+        self.df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/Juan/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
 
         if not os.path.exists(self.df_fn):
             return False

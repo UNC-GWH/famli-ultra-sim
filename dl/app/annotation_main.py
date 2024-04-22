@@ -15,7 +15,7 @@ from utils import *
 
 from pathlib import Path
 import json
-
+import argparse
 
 vc = vvc.ViewComponents()
 
@@ -27,6 +27,38 @@ state.study_btn_colors = {}
 state.load_study_btn = []
 state.studies_initialized = 0
 
+def get_path_string_until_directory(full_path, target_directory):
+    """
+    Returns a single path string from the root until it reaches the target directory (inclusive).
+
+    Args:
+    full_path (str): The full path from which to extract the path.
+    target_directory (str): The directory to stop at (included in the result).
+
+    Returns:
+    str: A path string from the root up to the target directory.
+    """
+    # Normalize the path (resolve any .., ., etc.)
+    full_path = os.path.normpath(full_path)
+    
+    # Initialize the path result and temporary path variable
+    result_path = ""
+
+    # Split the path into components
+    for part in full_path.split(os.sep):
+        if result_path:
+            # Append the next part of the path
+            result_path = os.path.join(result_path, part)
+        else:
+            # This is for the first part, which might be a drive letter
+            result_path = part
+        
+        # If the current part is the target directory, stop building the path
+        if part == target_directory:
+            break
+
+    return result_path
+
 def OnMouseWheel():
     vc.OnMouseWheel()
     ctrl.view_update()
@@ -34,14 +66,18 @@ def OnMouseWheel():
 def SaveConfig():
     # vc.mount_point = "/Volumes/med/GWH"
     mount_point = os.path.normpath(state.mount_point).replace(os.sep, "/")
+    user = state.user
 
     home_dir = Path.home()
-    json.dump({"mount_point": mount_point}, open(home_dir / ".qc_app_config.json", "w"))
-
-    LoadStudies(mount_point)
-
-def LoadStudies(mount_point):
+    json.dump({"mount_point": mount_point, "user": user}, open(home_dir / ".qc_app_config.json", "w"))
+    
     vc.mount_point = mount_point
+    vc.user = user
+    vc.MakeCopyForUser()
+
+    LoadStudies()
+
+def LoadStudies():
 
     if vc.Initialize():
         StudiesContent()
@@ -251,6 +287,7 @@ with SinglePageWithDrawerLayout(server) as layout:
         with vuetify.VBtn(icon=True, click=SaveConfig):
             vuetify.VIcon("mdi-open-in-app")
         vuetify.VTextField(label="Mount Point", v_model=("mount_point", None))
+        vuetify.VTextField(label="User", v_model=("user", None))
         #     vuetify.VInput(accept=".csv", ref="file_studies", type="file", multiple=False)
         # vuetify.VFileInput(accept=".csv", ref="file_studies", prepend_icon="mdi-open-in-app", multiple=False, hide_details=True, dense=True, v_model=("csv_studies", None))
 
@@ -265,13 +302,20 @@ with SinglePageWithDrawerLayout(server) as layout:
         content.clear()
         MainContent()
 
+
+
 # Starting the server
 if __name__ == "__main__":
-    multiprocessing.freeze_support()
+    multiprocessing.freeze_support()    
+
     if os.path.exists(Path.home() / ".qc_app_config.json"):
         config = json.load(open(Path.home() / ".qc_app_config.json"))
         vc.mount_point = config["mount_point"]
         state.mount_point = config["mount_point"]
+
+        vc.user = config["user"]
+        state.user = config["user"]
+
         if vc.Initialize():
             StudiesContent()
             LoadStudy(0, vc.study_ids[0])

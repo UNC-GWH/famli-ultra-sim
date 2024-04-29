@@ -96,25 +96,28 @@ def LoadStudy(idx, study_id):
     vc.LoadImg(img_tag)
     vc.UpdateFan()
     
-    tx, ty, tz, rx, ry, rz = vc.GetStudyTransform(study_id)
     vc.UpdateStudyTemplate(study_id)
 
-    print(f"tx: {tx}, ty: {ty}, tz: {tz}, rx: {rx}, ry: {ry}, rz: {rz}")
+    translation = np.array([0.0, 0.0, 0.0])
+    rotation_angles = np.array([0.0, 0.0, 0.0])
+    vc.OnTransformSliderChange(translation, rotation_angles)
     
     state.update({
         "img_tags": img_tags,
         "img_tag": img_tag,
-        "tx": tx,
-        "ty": ty,
-        "tz": tz,
-        "rx": rx,
-        "ry": ry,
-        "rz": rz,
+        "tx": 0.0,
+        "ty": 0.0,
+        "tz": 0.0,
+        "rx": 0.0,
+        "ry": 0.0,
+        "rz": 0.0,
     })
     ctrl.view_update()
 
 def Save():
-    vc.Save(state.tx, state.ty, state.tz, state.rx, state.ry, state.rz)
+    translation = np.array([state.tx, state.ty, state.tz])
+    rotation_angles = np.array([state.rx, state.ry, state.rz])
+    vc.Save(translation, rotation_angles)
 
 def NextTemplateActors():
     vc.NextTemplateActors()
@@ -134,6 +137,20 @@ def PreviousChangeMainActor():
     
 def LoadTemplateActors(idx):
     vc.LoadTemplateActors(idx)
+    ctrl.view_update()
+
+def ApplyTransform():
+    translation = np.array([state.tx, state.ty, state.tz])
+    rotation_angles = np.array([state.rx, state.ry, state.rz])
+    vc.ApplyTransform(translation, rotation_angles)
+    state.update({
+        "tx": 0.0,
+        "ty": 0.0,
+        "tz": 0.0,
+        "rx": 0.0,
+        "ry": 0.0,
+        "rz": 0.0,
+    })
     ctrl.view_update()
 
 @state.change("tx")
@@ -211,6 +228,7 @@ def MainContent():
             with vuetify.VCol(cols=6):
                 with vuetify.VToolbar():
                     vuetify.VSelect(items=("img_tags", []), v_model=("img_tag", ""))
+                    vuetify.VTextField(label="Frame", v_model=("frame_idx", 0))
 
                 with vtk_widgets.VtkRemoteView(vc.resliceViewer.GetRenderWindow(), 
                                                 ref="img_view",
@@ -219,49 +237,45 @@ def MainContent():
                     ctrl.view_update.add(view.update)
             with vuetify.VCol(cols=6):
                 with vuetify.VToolbar():
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("tx", 0), # (var_name, initial_value)
-                            min=-0.1, max=0.1, step=0.001,
-                            hide_details=True, dense=True,
-                            label="Tx"
-                        )
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("ty", 0), # (var_name, initial_value)
-                            min=-0.1, max=0.1, step=0.001,
-                            hide_details=True, dense=True,
-                            label="Ty"
-                        )
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("tz", 0), # (var_name, initial_value)
-                            min=-0.1, max=0.1, step=0.001,
-                            hide_details=True, dense=True,
-                            label="Tz"
-                        )
                     
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("rx", 0), # (var_name, initial_value)
-                            min=-180, max=180, step=1,
-                            hide_details=True, dense=True,
-                            label="Rx"
-                        )
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("ry", 0), # (var_name, initial_value)
-                            min=-180, max=180, step=1,
-                            hide_details=True, dense=True,
-                            label="Ry"
-                        )
-                    with vuetify.VCol(cols=2):
-                        vuetify.VSlider(
-                            v_model=("rz", 0), # (var_name, initial_value)
-                            min=-180, max=180, step=1,
-                            hide_details=True, dense=True,
-                            label="Rz"
-                        )
+                    vuetify.VSlider(
+                        v_model=("tx", 0), # (var_name, initial_value)
+                        min=-0.1, max=0.1, step=0.001,
+                        hide_details=True, dense=True,
+                        label="Tx"
+                    )
+                    vuetify.VSlider(
+                        v_model=("ty", 0), # (var_name, initial_value)
+                        min=-0.1, max=0.1, step=0.001,
+                        hide_details=True, dense=True,
+                        label="Ty"
+                    )
+                    vuetify.VSlider(
+                        v_model=("tz", 0), # (var_name, initial_value)
+                        min=-0.1, max=0.1, step=0.001,
+                        hide_details=True, dense=True,
+                        label="Tz"
+                    )
+                    vuetify.VSlider(
+                        v_model=("rx", 0), # (var_name, initial_value)
+                        min=-180, max=180, step=1,
+                        hide_details=True, dense=True,
+                        label="Rx"
+                    )
+                    vuetify.VSlider(
+                        v_model=("ry", 0), # (var_name, initial_value)
+                        min=-180, max=180, step=1,
+                        hide_details=True, dense=True,
+                        label="Ry"
+                    )
+                    vuetify.VSlider(
+                        v_model=("rz", 0), # (var_name, initial_value)
+                        min=-180, max=180, step=1,
+                        hide_details=True, dense=True,
+                        label="Rz"
+                    )
+                    with vuetify.VBtn(icon=True, click=ApplyTransform):
+                        vuetify.VIcon("mdi-matrix")
                 with vtk_widgets.VtkLocalView(vc.renderer_dict["main"]["renderWindow"]) as view:
                     ctrl.view_update.add(view.update)
         with vuetify.VRow(style="height: 15%"):
@@ -273,7 +287,7 @@ def MainContent():
                     with vuetify.VBtn(icon=True, click=lambda ren_idx=ren_idx: LoadTemplateActors(ren_idx)):
                         vuetify.VIcon("mdi-upload-box")
                     with vtk_widgets.VtkLocalView(ren_d["renderWindow"]) as view:
-                            ctrl.view_update.add(view.update)
+                        ctrl.view_update.add(view.update)
             with vuetify.VCol(cols=1):
                 with vuetify.VBtn(icon=True, click=NextTemplateActors):
                     vuetify.VIcon("mdi-arrow-right")

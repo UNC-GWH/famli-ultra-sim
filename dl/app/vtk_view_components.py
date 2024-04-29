@@ -32,6 +32,7 @@ class ViewComponents:
 
         self.study_ids = []
         self.current_study_idx = -1
+        self.current_surf_idx = 0
         self.study_id = ""
         self.study_images = {}
         self.user = ""
@@ -48,8 +49,7 @@ class ViewComponents:
         self.renderer_dict = {}
 
         self.renderer_dict["main"] = createRenderer()
-
-        self.main_transform = vtk.vtkTransform()
+        
         self.main_actor, self.main_mapper = createActor(surf=None, return_mapper=True)
 
 
@@ -105,6 +105,7 @@ class ViewComponents:
             self.df_studies["tx"] = 0.0
             self.df_studies["ty"] = 0.0
             self.df_studies["tz"] = 0.0
+            self.df_studies["w"] = 0.0
             self.df_studies["rx"] = 0.0
             self.df_studies["ry"] = 0.0
             self.df_studies["rz"] = 0.0
@@ -115,25 +116,26 @@ class ViewComponents:
         # print(self.df_studies)
         self.study_ids = self.df["study_id"].drop_duplicates().tolist()
 
-        self.template_arr = ["Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0499-5/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1336-3/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1398-3/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0447-5/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0615-3/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1453-3/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0626-2/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0664-4/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0749-4/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1485-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1489-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0754-2/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1491-2/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0941-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0795-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0869-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1275-1/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0950-4/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1144-4/fetus/Fetus_Model.stl",
+        self.template_arr = [
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0499-5/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1336-3/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1398-3/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0447-5/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0615-3/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1453-3/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0626-2/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0664-4/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0749-4/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1485-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1489-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0754-2/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1491-2/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0941-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0795-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0869-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1275-1/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0950-4/fetus/Fetus_Model.stl",
+            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1144-4/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
@@ -217,7 +219,7 @@ class ViewComponents:
 
         return rotationAngle, rotationVector
     def OnMouseWheel(self):
-        self.UpdateFan()
+        return self.UpdateFan()
 
     def UpdateFan(self):
         slice_num = self.resliceViewer.GetSlice()
@@ -240,21 +242,53 @@ class ViewComponents:
                 self.ultrasound_fan_actor_transform.RotateWXYZ(rotationAngle, rotationVector[0], rotationVector[1], rotationVector[2])
 
             self.ultrasound_fan_actor.SetUserMatrix(self.ultrasound_fan_actor_transform.GetMatrix())
+        return slice_num
 
-    def OnTransformSliderChange(self, translation, rotation_angles):
+    def GetCurrentTransform(self, translation, rotation_angles):
+        if self.study_id in self.df_studies.index:
+            tx, ty, tz, w, rx, ry, rz = self.df_studies.loc[self.study_id, ["tx", "ty", "tz", "w", "rx", "ry", "rz"]].values
+            current_transform = vtk.vtkTransform()
+            current_transform.Translate(tx, ty, tz)
+        
+            # Apply rotations.
+            current_transform.RotateWXYZ(w, rx, ry, rz)
 
         # Reset the transform to identity to apply new transformations
-        self.main_transform.Identity()
+        main_transform = vtk.vtkTransform()
+        main_transform.Identity()
 
         # Apply translation
-        self.main_transform.Translate(*translation)
+        main_transform.Translate(*translation)
         
-        # Apply rotations. VTK applies rotations in the order of Z, Y, X by default
-        self.main_transform.RotateX(rotation_angles[0])
-        self.main_transform.RotateY(rotation_angles[1])
-        self.main_transform.RotateZ(rotation_angles[2])
+        # Apply rotations.
+        main_transform.RotateX(rotation_angles[0])
+        main_transform.RotateY(rotation_angles[1])
+        main_transform.RotateZ(rotation_angles[2])
 
-        self.main_actor.SetUserMatrix(self.main_transform.GetMatrix())
+        main_transform.Concatenate(current_transform)
+
+        return main_transform
+    
+    def OnTransformSliderChange(self, translation, rotation_angles):
+
+        transform = self.GetCurrentTransform(translation, rotation_angles)
+        self.main_actor.SetUserMatrix(transform.GetMatrix())
+        
+
+    def ApplyTransform(self, translation, rotation_angles):
+        transform = self.GetCurrentTransform(translation, rotation_angles)
+
+        tx, ty, tz = transform.GetPosition()
+        w, rx, ry, rz = transform.GetOrientationWXYZ()
+
+        self.df_studies.at[self.study_id, "tx"] = tx
+        self.df_studies.at[self.study_id, "ty"] = ty
+        self.df_studies.at[self.study_id, "tz"] = tz
+        self.df_studies.at[self.study_id, "w"] = w
+        self.df_studies.at[self.study_id, "rx"] = rx
+        self.df_studies.at[self.study_id, "ry"] = ry
+        self.df_studies.at[self.study_id, "rz"] = rz
+        
 
     def LoadStudy(self, idx, study_id):
         self.current_study_idx = idx
@@ -263,6 +297,8 @@ class ViewComponents:
 
         for idx, row in self.df.query(f'study_id == "{study_id}"')[['tag', 'file_path']].iterrows():
             self.study_images[row['tag']] = {"text": row['tag'], "file_path": row['file_path']}
+
+        self.study_images = dict(sorted(self.study_images.items()))
 
         return [v for _, v in self.study_images.items()]
     
@@ -276,13 +312,6 @@ class ViewComponents:
             self.resliceViewer.SetInputData(self.image_data)
 
             self.UpdateFan()
-
-    def GetStudyTransform(self, study_id):
-        print(self.df_studies.query(f'study_id == "{study_id}"')[["tx", "ty", "tz", "rx", "ry", "rz"]])
-        print(self.df_studies.loc[study_id, ["tx", "ty", "tz", "rx", "ry", "rz"]].values)
-        if study_id in self.df_studies.index:
-            return self.df_studies.loc[study_id, ["tx", "ty", "tz", "rx", "ry", "rz"]].values
-        return [0, 0, 0, 0, 0, 0]
     
     def UpdateStudyTemplate(self, study_id):
         if study_id in self.df_studies.index:
@@ -295,13 +324,19 @@ class ViewComponents:
                 else:
                     print("Template not found")
 
-    def Save(self, tx, ty, tz, rx, ry, rz):
+    def Save(self, translation, rotation_angles):
         # Check if the specified ID exists in the DataFrame
         if self.study_id in self.df_studies.index:
+
+            transform = self.GetCurrentTransform(translation=translation, rotation_angles=rotation_angles)
+            tx, ty, tz = transform.GetPosition()
+            w, rx, ry, rz = transform.GetOrientationWXYZ()
+
             # Update the row columns as specified
             self.df_studies.at[self.study_id, "tx"] = tx
             self.df_studies.at[self.study_id, "ty"] = ty
             self.df_studies.at[self.study_id, "tz"] = tz
+            self.df_studies.at[self.study_id, "w"] = w
             self.df_studies.at[self.study_id, "rx"] = rx
             self.df_studies.at[self.study_id, "ry"] = ry
             self.df_studies.at[self.study_id, "rz"] = rz
@@ -311,7 +346,6 @@ class ViewComponents:
             # Write the updated DataFrame back to the file
             self.df_studies.to_csv(self.studies_fn)
             self.df_studies.to_csv(self.studies_fn + str(datetime.today().strftime('%Y-%m-%d-%H')))
-            
             
             print("Saved!")
     

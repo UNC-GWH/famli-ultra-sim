@@ -245,7 +245,7 @@ class ViewComponents:
         return slice_num
 
     def GetCurrentTransform(self, translation, rotation_angles):
-        if self.study_id in self.df_studies.index:
+        if hasattr(self, "df_studies") and self.study_id in self.df_studies.index:
             tx, ty, tz, w, rx, ry, rz = self.df_studies.loc[self.study_id, ["tx", "ty", "tz", "w", "rx", "ry", "rz"]].values
             current_transform = vtk.vtkTransform()
             current_transform.Translate(tx, ty, tz)

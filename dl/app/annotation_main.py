@@ -60,7 +60,7 @@ def get_path_string_until_directory(full_path, target_directory):
     return result_path
 
 def OnMouseWheel():
-    vc.OnMouseWheel()
+    state.frame_idx =  vc.OnMouseWheel()
     ctrl.view_update()
 
 def SaveConfig():

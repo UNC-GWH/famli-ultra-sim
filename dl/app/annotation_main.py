@@ -327,6 +327,9 @@ if __name__ == "__main__":
         vc.mount_point = config["mount_point"]
         state.mount_point = config["mount_point"]
 
+        if "data_path" in config:
+            vc.data_path = config["data_path"]
+
         vc.user = config["user"]
         state.user = config["user"]
 

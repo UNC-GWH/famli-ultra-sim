@@ -25,10 +25,11 @@ from datetime import datetime
 
 
 class ViewComponents:
-    def __init__(self, mount_point=None, num_bottom_renderers=5):
+    def __init__(self, mount_point=None, num_bottom_renderers=5, data_path="Groups/FAMLI/QCApps/3DQCApp/data"):
         
         self.image_data = None
         self.mount_point = mount_point
+        self.data_path = data_path
 
         self.study_ids = []
         self.current_study_idx = -1
@@ -80,8 +81,8 @@ class ViewComponents:
             self.Initialize()
     def MakeCopyForUser(self):
 
-        orig_df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
-        df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
+        orig_df_fn = os.path.join(self.mount_point, self.data_path, "C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
+        df_fn = os.path.join(self.mount_point, self.data_path, "C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
 
         if not os.path.exists(df_fn):
             df = pd.read_csv(orig_df_fn)
@@ -89,7 +90,7 @@ class ViewComponents:
 
     def Initialize(self):
 
-        self.df_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
+        self.df_fn = os.path.join(self.mount_point, self.data_path, "C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train_{user}.csv".format(user=self.user))
 
         if not os.path.exists(self.df_fn):
             return False
@@ -164,7 +165,7 @@ class ViewComponents:
         self.NextTemplateActors()
 
         self.grid_sweeps = {}
-        model_grid_dir = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/scene_models/paths")
+        model_grid_dir = os.path.join(self.mount_point, self.data_path, "scene_models/paths")
         for sweep_fn in glob.glob(os.path.join(model_grid_dir, '*.vtk')):
             key = os.path.basename(sweep_fn).split(".")[0].replace("_path", "")
             self.grid_sweeps[key] = readSurf(sweep_fn)
@@ -173,14 +174,14 @@ class ViewComponents:
             self.renderer_dict["main"]["renderer"].AddActor(actor)
 
         self.sweep_actors = []
-        model_sweep_dir = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/scene_models/tube")
+        model_sweep_dir = os.path.join(self.mount_point, self.data_path, "data/scene_models/tube")
         for sweep_fn in glob.glob(os.path.join(model_sweep_dir, '*.stl')):
             self.sweep_actors.append(readCreateActor(sweep_fn))
         for actor in self.sweep_actors:
             actor.GetProperty().SetOpacity(0.5)
             self.renderer_dict["main"]["renderer"].AddActor(actor)
 
-        ultrasound_fan_fn = os.path.join(self.mount_point, "Groups/FAMLI/Shared/3DModelQCApp/data/scene_models/probe/ultrasound_fan_2d_iq.stl")
+        ultrasound_fan_fn = os.path.join(self.mount_point, self.data_path, "scene_models/probe/ultrasound_fan_2d_iq.stl")
 
         self.ultrasound_fan_actor = readCreateActor(ultrasound_fan_fn)
         self.ultrasound_fan_actor_transform = vtkTransform()

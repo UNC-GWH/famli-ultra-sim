@@ -25,37 +25,47 @@ def readMp4(fname):
 def readImage(file_path):
     # Convert SimpleITK image to a NumPy array
     print("Reading image: ", file_path)
+    img_d = readImageData(file_path)
+    vtk_image = createVtkImage(img_d)
+
+    return vtk_image
+
+def readImageData(file_path):
+    # Convert SimpleITK image to a NumPy array
+    print("Reading image: ", file_path)
+    img_d = {}
     if os.path.splitext(file_path)[1] == ".mp4":
         img_array = readMp4(file_path)
         img_array = np.flip(img_array[:,:,:,0], axis=1)
-        vtk_data_array = numpy_support.numpy_to_vtk(num_array=img_array.ravel(), deep=True)
-
-        # Create a VTK image (vtkImageData)
-        vtk_image = vtkImageData()
-        vtk_image.SetDimensions(list(img_array.shape)[::-1])
-        vtk_image.GetPointData().SetScalars(vtk_data_array)
-
+        img_d["data"] = img_array
+        img_d["spacing"] = [1, 1, 1]
+        img_d["origin"] = [0, 0, 0]
+        
     else:
         sitk_image = sitk.ReadImage(file_path)
-        spacing = sitk_image.GetSpacing()
-        sitk_array = sitk.GetArrayFromImage(sitk_image)
         
-        if (len(sitk_array.shape) == 4):
-            sitk_array = sitk_array[:,:,:,0]
-            sitk_array = np.flip(sitk_array, axis=1)
+        img_array = sitk.GetArrayFromImage(sitk_image)
         
-        # sitk_array = sitk_array.transpose(2,1,0) # Transpose dimensions to match VTK's order
+        if (len(img_array.shape) == 4):
+            img_array = img_array[:,:,:,0]
+            img_array = np.flip(img_array, axis=1)
 
-        # Convert NumPy array to VTK array (vtkImageData)
-        # print(sitk_array.shape)
-        vtk_data_array = numpy_support.numpy_to_vtk(num_array=sitk_array.ravel(), deep=True)
+        img_d["data"] = img_array
+        img_d["spacing"] = sitk_image.GetSpacing()
+        img_d["origin"] = sitk_image.GetOrigin()
 
-        # Create a VTK image (vtkImageData)
-        vtk_image = vtkImageData()
-        vtk_image.SetSpacing(sitk_image.GetSpacing())
-        vtk_image.SetOrigin(sitk_image.GetOrigin())
-        vtk_image.SetDimensions(sitk_image.GetSize())
-        vtk_image.GetPointData().SetScalars(vtk_data_array)
+    return img_d
+
+def createVtkImage(img_d):
+    img_array = img_d["data"]
+
+    vtk_data_array = numpy_support.numpy_to_vtk(num_array=img_array.ravel())
+    # Create a VTK image (vtkImageData)
+    vtk_image = vtkImageData()
+    vtk_image.SetSpacing(img_d["spacing"])
+    vtk_image.SetOrigin(img_d["origin"])
+    vtk_image.SetDimensions(list(img_array.shape)[::-1])
+    vtk_image.GetPointData().SetScalars(vtk_data_array)
 
     return vtk_image
 

@@ -78,10 +78,8 @@ def SaveConfig():
     LoadStudies()
 
 def LoadStudies():
-
     if vc.Initialize():
         StudiesContent()
-        LoadStudy(0, vc.study_ids[0])
 
 def LoadStudy(idx, study_id):
     
@@ -89,12 +87,12 @@ def LoadStudy(idx, study_id):
         state[f"study_btn_color_{vc.current_study_idx}"] = vc.GetStudyButtonColor(vc.study_id) # Set the color of the study button state completed/not completed
     
     img_tags = vc.LoadStudy(idx, study_id)
+
     img_tag = img_tags[0]["text"]
+    vc.SetImage(img_tag)
+    vc.UpdateFan()
 
     state[f"study_btn_color_{idx}"] = "#42A5F5" # Set the color of the active study button
-
-    vc.LoadImg(img_tag)
-    vc.UpdateFan()
     
     vc.UpdateStudyTemplate(study_id)
 
@@ -203,7 +201,9 @@ def OnTransformSliderChangeRz(rz, **kwargs):
 
 @state.change("img_tag")
 def OnImgTagChange(img_tag, **kwargs):
-    vc.LoadImg(img_tag)
+    vc.SetImage(img_tag)
+    vc.UpdateFan()
+    state.frame_idx = 0
     ctrl.view_update()
 
 def StudiesContent():
@@ -238,44 +238,86 @@ def MainContent():
             with vuetify.VCol(cols=6):
                 with vuetify.VToolbar():
                     
-                    vuetify.VSlider(
-                        v_model=("tx", 0), # (var_name, initial_value)
-                        min=-0.1, max=0.1, step=0.001,
-                        hide_details=True, dense=True,
-                        label="Tx"
-                    )
-                    vuetify.VSlider(
-                        v_model=("ty", 0), # (var_name, initial_value)
-                        min=-0.1, max=0.1, step=0.001,
-                        hide_details=True, dense=True,
-                        label="Ty"
-                    )
-                    vuetify.VSlider(
-                        v_model=("tz", 0), # (var_name, initial_value)
-                        min=-0.1, max=0.1, step=0.001,
-                        hide_details=True, dense=True,
-                        label="Tz"
-                    )
-                    vuetify.VSlider(
-                        v_model=("rx", 0), # (var_name, initial_value)
-                        min=-180, max=180, step=1,
-                        hide_details=True, dense=True,
-                        label="Rx"
-                    )
-                    vuetify.VSlider(
-                        v_model=("ry", 0), # (var_name, initial_value)
-                        min=-180, max=180, step=1,
-                        hide_details=True, dense=True,
-                        label="Ry"
-                    )
-                    vuetify.VSlider(
-                        v_model=("rz", 0), # (var_name, initial_value)
-                        min=-180, max=180, step=1,
-                        hide_details=True, dense=True,
-                        label="Rz"
-                    )
-                    with vuetify.VBtn(icon=True, click=ApplyTransform):
-                        vuetify.VIcon("mdi-matrix")
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("tx", 0), # (var_name, initial_value)
+                                min=-0.1, max=0.1, step=0.001,
+                                hide_details=True, dense=True,
+                                label="Tx"
+                            )
+                        html.Span("Translation on red-axis")
+
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("ty", 0), # (var_name, initial_value)
+                                min=-0.1, max=0.1, step=0.001,
+                                hide_details=True, dense=True,
+                                label="Ty"
+                            )
+                        html.Span("Translation on green-axis")
+
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("tz", 0), # (var_name, initial_value)
+                                min=-0.1, max=0.1, step=0.001,
+                                hide_details=True, dense=True,
+                                label="Tz"
+                            )
+                        html.Span("Translation on blue-axis")
+
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("rx", 0), # (var_name, initial_value)
+                                min=-180, max=180, step=1,
+                                hide_details=True, dense=True,
+                                label="Rx"
+                            )
+                        html.Span("Rotation around red-axis")
+
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("ry", 0), # (var_name, initial_value)
+                                min=-180, max=180, step=1,
+                                hide_details=True, dense=True,
+                                label="Ry"
+                            )
+                        html.Span("Rotation around green-axis")
+
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            vuetify.VSlider(
+                                v_bind="attrs",
+                                v_on="on",
+                                v_model=("rz", 0), # (var_name, initial_value)
+                                min=-180, max=180, step=1,
+                                hide_details=True, dense=True,
+                                label="Rz"
+                            )
+                        html.Span("Rotation around blue-axis")
+                    with vuetify.VTooltip(top=True):
+                        with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                            with vuetify.VBtn(
+                                v_bind="attrs",
+                                v_on="on",
+                                icon=True, 
+                                click=ApplyTransform):
+                                vuetify.VIcon("mdi-matrix")
+                        html.Span("Apply Transform")
                 with vtk_widgets.VtkLocalView(vc.renderer_dict["main"]["renderWindow"]) as view:
                     ctrl.view_update.add(view.update)
         with vuetify.VRow(style="height: 15%"):
@@ -298,15 +340,24 @@ with SinglePageWithDrawerLayout(server) as layout:
 
     with layout.toolbar:
         
-        with vuetify.VBtn(icon=True, click=SaveConfig):
-            vuetify.VIcon("mdi-open-in-app")
+        with vuetify.VTooltip(top=True):
+            with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                with vuetify.VBtn(v_bind="attrs",
+                    v_on="on",
+                    icon=True, 
+                    click=SaveConfig):
+                    vuetify.VIcon("mdi-open-in-app")
+            html.Span("Save Configuration")
         vuetify.VTextField(label="Mount Point", v_model=("mount_point", None))
         vuetify.VTextField(label="User", v_model=("user", None))
-        #     vuetify.VInput(accept=".csv", ref="file_studies", type="file", multiple=False)
-        # vuetify.VFileInput(accept=".csv", ref="file_studies", prepend_icon="mdi-open-in-app", multiple=False, hide_details=True, dense=True, v_model=("csv_studies", None))
-
-        with vuetify.VBtn(icon=True, click=Save):
-            vuetify.VIcon("mdi-content-save")
+        with vuetify.VTooltip(top=True):
+            with vuetify.Template(v_slot_activator="{ on, attrs }"):
+                with vuetify.VBtn(v_bind="attrs",
+                    v_on="on",
+                    icon=True, 
+                    click=Save):
+                    vuetify.VIcon("mdi-content-save")
+            html.Span("Save study")
 
     with layout.drawer as drawer:
         drawer.clear()
@@ -318,8 +369,7 @@ with SinglePageWithDrawerLayout(server) as layout:
 
 
 
-# Starting the server
-if __name__ == "__main__":
+def main():
     multiprocessing.freeze_support()    
 
     if os.path.exists(Path.home() / ".qc_app_config.json"):
@@ -335,6 +385,13 @@ if __name__ == "__main__":
 
         if vc.Initialize():
             StudiesContent()
-            LoadStudy(0, vc.study_ids[0])
+            if len(vc.study_ids) > 0:
+                idx, study_id = vc.FindFirstIncompleteStudy()
+                LoadStudy(idx, study_id)
+
     server.start(exec_mode="desktop")
+
+# Starting the server
+if __name__ == "__main__":
+    main()
     # server.start()

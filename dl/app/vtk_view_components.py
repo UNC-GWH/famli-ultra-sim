@@ -23,11 +23,12 @@ import glob
 
 from datetime import datetime
 
+from multiprocessing import Pool, cpu_count
 
 class ViewComponents:
     def __init__(self, mount_point=None, num_bottom_renderers=5, data_path="Groups/FAMLI/QCApps/3DQCApp/data"):
         
-        self.image_data = None
+        self.study_image_data = {}
         self.mount_point = mount_point
         self.data_path = data_path
 
@@ -79,6 +80,7 @@ class ViewComponents:
 
         if self.mount_point is not None:
             self.Initialize()
+        
     def MakeCopyForUser(self):
 
         orig_df_fn = os.path.join(self.mount_point, self.data_path, "C_dataset_analysis_protocoltagsonly_gaboe230_ge_iq_train.csv")
@@ -156,6 +158,7 @@ class ViewComponents:
         
         self.main_mapper.SetInputData(self.template_surf[0])
         self.renderer_dict["main"]["renderer"].AddActor(self.main_actor)
+        self.renderer_dict["main"]["renderer"].ResetCamera()
 
         bottom = self.renderer_dict["bottom"]
         for ren_d in bottom:
@@ -163,6 +166,9 @@ class ViewComponents:
             ren_d["mapper"] = mapper
             ren_d["renderer"].AddActor(actor)
         self.NextTemplateActors()
+
+        for ren_d in bottom:            
+            ren_d["renderer"].ResetCamera()
 
         self.grid_sweeps = {}
         model_grid_dir = os.path.join(self.mount_point, self.data_path, "scene_models/paths")
@@ -225,8 +231,8 @@ class ViewComponents:
     def UpdateFan(self):
         slice_num = self.resliceViewer.GetSlice()
 
-        if self.image_data and not self.tag == "":
-            tau = slice_num/self.image_data.GetDimensions()[-1]
+        if self.study_image_data and not self.tag == "" and self.tag in self.study_image_data:
+            tau = slice_num/self.study_image_data[self.tag].GetDimensions()[-1]
             
             slice_coordinates, direction = self.Interpolate_coordinates(tau, self.tag)
 
@@ -296,25 +302,38 @@ class ViewComponents:
     def LoadStudy(self, idx, study_id):
         self.current_study_idx = idx
         self.study_id = study_id
-        self.study_images = {}
+        self.study_image_data = {}
+        study_images = {}
 
         for idx, row in self.df.query(f'study_id == "{study_id}"')[['tag', 'file_path']].iterrows():
-            self.study_images[row['tag']] = {"text": row['tag'], "file_path": row['file_path']}
+            study_images[row['tag']] = {"text": row['tag'], "file_path": row['file_path']}
+        
 
-        self.study_images = dict(sorted(self.study_images.items()))
+        # Organize the dictionary according to the acquisition order
+        ordered_keys = ['M', 'R0', 'R1', 'L0', 'L1', "C1", "C2", "C3", "C4"] 
+        self.study_images = {key: study_images[key] for key in ordered_keys if key in study_images}
+
+        with Pool(cpu_count()) as p:
+            img_data_d = p.map(readImageData, [os.path.join(self.mount_point, img["file_path"]) for img in self.study_images.values()])
+
+        for img_d, key in zip(img_data_d, self.study_images.keys()):
+            self.study_image_data[key] = createVtkImage(img_d)
 
         return [v for _, v in self.study_images.items()]
     
+    def SetImage(self, tag):        
+        if tag in self.study_image_data:            
+            self.tag = tag
+            self.resliceViewer.SetInputData(self.study_image_data[tag])
+            self.resliceViewer.SetSlice(0)
+
     def LoadImg(self, tag):
-        self.tag = tag
+        
         if tag in self.study_images:
             img_path = self.study_images[tag]["file_path"]
 
             img_path = os.path.join(self.mount_point, img_path)
-            self.image_data = readImage(img_path)
-            self.resliceViewer.SetInputData(self.image_data)
-
-            self.UpdateFan()
+            self.study_image_data[tag] = readImage(img_path)
     
     def UpdateStudyTemplate(self, study_id):
         if study_id in self.df_studies.index:
@@ -356,6 +375,12 @@ class ViewComponents:
         if study_id in self.df_studies.index:
             return "#00E676" if self.df_studies.at[study_id, "completed"] else "#E0E0E0"
         return "#E0E0E0"
+    
+    def FindFirstIncompleteStudy(self):        
+        for idx, study_id in enumerate(self.study_ids):
+            if study_id in self.df_studies.index and not self.df_studies.at[study_id, "completed"]:
+                return idx, study_id            
+        return 0, self.study_ids[0]
     
     def LoadTemplateActors(self, idx):
         self.current_surf_idx = self.current_actor_index - (5 - idx)

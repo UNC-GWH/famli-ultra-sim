@@ -112,10 +112,14 @@ class ViewComponents:
             self.df_studies["rx"] = 0.0
             self.df_studies["ry"] = 0.0
             self.df_studies["rz"] = 0.0
+            self.df_studies["flag"] = 0
             self.df_studies["completed"] = 0
             self.df_studies["template_fn"] = ""
         else:
             self.df_studies = pd.read_csv(self.studies_fn, index_col="study_id")
+            if "flag" not in self.df_studies.columns:
+                self.df_studies["flag"] = 0
+
         # print(self.df_studies)
         self.study_ids = self.df["study_id"].drop_duplicates().tolist()
 
@@ -299,6 +303,9 @@ class ViewComponents:
         self.df_studies.at[self.study_id, "rz"] = rz
         
 
+    def FlagStudy(self, study_id):
+        self.df_studies.at[study_id, "flag"] = int(not self.df_studies.at[study_id, "flag"])
+    
     def LoadStudy(self, idx, study_id):
         self.current_study_idx = idx
         self.study_id = study_id
@@ -373,7 +380,7 @@ class ViewComponents:
     
     def GetStudyButtonColor(self, study_id):
         if study_id in self.df_studies.index:
-            return "#00E676" if self.df_studies.at[study_id, "completed"] else "#E0E0E0"
+            return "#EEFF41" if self.df_studies.at[study_id, "flag"] else "#00E676" if self.df_studies.at[study_id, "completed"] else "#E0E0E0"
         return "#E0E0E0"
     
     def FindFirstIncompleteStudy(self):        

@@ -26,6 +26,7 @@ state, ctrl, ui = server.state, server.controller, server.ui
 state.study_btn_colors = {}
 state.load_study_btn = []
 state.studies_initialized = 0
+state.flag_study = 0
 
 def get_path_string_until_directory(full_path, target_directory):
     """
@@ -112,6 +113,10 @@ def LoadStudy(idx, study_id):
     })
     ctrl.view_update()
 
+def FlagStudy(idx, study_id):
+    vc.FlagStudy(study_id)
+    state[f"study_btn_color_{idx}"] = vc.GetStudyButtonColor(study_id) # Set the color of the study button state completed/not completed
+    
 def Save():
     translation = np.array([state.tx, state.ty, state.tz])
     rotation_angles = np.array([state.rx, state.ry, state.rz])
@@ -218,6 +223,8 @@ def StudiesContent():
                     for idx, study_id in enumerate(vc.study_ids):
                         with vuetify.VListItem():
                             vuetify.VBtn(block=True, children=f"{study_id}", click=lambda study_id=study_id, idx=idx: LoadStudy(idx, study_id), color=(f"study_btn_color_{idx}", vc.GetStudyButtonColor(study_id)))
+                            with vuetify.VBtn(icon=True, click=lambda study_id=study_id, idx=idx: FlagStudy(idx, study_id)):
+                                vuetify.VIcon("mdi-flag")
 
 def MainContent():
     with vuetify.VContainer(

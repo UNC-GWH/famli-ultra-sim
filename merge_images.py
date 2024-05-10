@@ -177,7 +177,10 @@ def main(args):
     
     df_g = df.groupby('group')
 
-    out_dir = os.path.splitext(args.csv)[0] + "_merged"
+    if args.out_dir:
+        out_dir = args.out_dir
+    else:
+        out_dir = os.path.splitext(args.csv)[0] + "_merged"
     print("Merged images output directory:", out_dir)
 
     if not os.path.exists(out_dir):
@@ -194,6 +197,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Merge NRRD files as a single image', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     parser.add_argument('--csv', type=str, help='CSV file with columns index,img,group', required=True)
+    parser.add_argument('--out_dir', type=str, help='Output directory', default=None)
     parser.add_argument('--mount_dir', type=str, help='Mount directory', default="./")
     parser.add_argument('--group_order', type=str, nargs='+', help='Group order to merge. Latter values replace preceding values.', default=
         # ["lady",

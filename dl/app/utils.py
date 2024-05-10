@@ -1,4 +1,5 @@
 import SimpleITK as sitk
+import itk
 import numpy as np
 from vtk.util import numpy_support
 from vtk import vtkImageData, vtkRenderWindow, vtkRenderer, vtkRenderWindowInteractor, vtkPolyDataReader, vtkSTLReader, vtkPolyDataMapper, vtkActor
@@ -42,30 +43,36 @@ def readImageData(file_path):
         img_d["origin"] = [0, 0, 0]
         
     else:
-        sitk_image = sitk.ReadImage(file_path)
+        try:
+            sitk_image = sitk.ReadImage(file_path)
+            spacing = sitk_image.GetSpacing()
+            origin = sitk_image.GetOrigin()
+            img_array = sitk.GetArrayFromImage(sitk_image)
+        except sitk.exc as e:
+            itk_image = itk.imread(file_path)
+            spacing = itk_image.GetSpacing()
+            origin = itk_image.GetOrigin()
+            img_array = itk.array_from_image(itk_image)
         
-        img_array = sitk.GetArrayFromImage(sitk_image)
+        
+        if (len(img_array.shape) == 4):
+            img_array = img_array[:,:,:,0]
+            img_array = np.flip(img_array, axis=1)
         
         if (len(img_array.shape) == 4):
             img_array = img_array[:,:,:,0]
             img_array = np.flip(img_array, axis=1)
 
-        img_d["data"] = img_array
-        img_d["spacing"] = sitk_image.GetSpacing()
-        img_d["origin"] = sitk_image.GetOrigin()
+        # Convert NumPy array to VTK array (vtkImageData)
+        # print(sitk_array.shape)
+        vtk_data_array = numpy_support.numpy_to_vtk(num_array=img_array.ravel())
 
-    return img_d
-
-def createVtkImage(img_d):
-    img_array = img_d["data"]
-
-    vtk_data_array = numpy_support.numpy_to_vtk(num_array=img_array.ravel())
-    # Create a VTK image (vtkImageData)
-    vtk_image = vtkImageData()
-    vtk_image.SetSpacing(img_d["spacing"])
-    vtk_image.SetOrigin(img_d["origin"])
-    vtk_image.SetDimensions(list(img_array.shape)[::-1])
-    vtk_image.GetPointData().SetScalars(vtk_data_array)
+        # Create a VTK image (vtkImageData)
+        vtk_image = vtkImageData()
+        vtk_image.SetSpacing(spacing)
+        vtk_image.SetOrigin(origin)
+        vtk_image.SetDimensions(list(img_array.shape)[::-1])
+        vtk_image.GetPointData().SetScalars(vtk_data_array)
 
     return vtk_image
 

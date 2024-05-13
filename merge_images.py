@@ -70,12 +70,12 @@ class MergeGroup():
             sitk.WriteImage(out_diffusor_img, out_diffusor_fn)
 
 
-def merge_groups(args, output_size, output_spacing, output_origin, out_dir):
+def merge_groups(args, output_size, output_spacing, output_origin, out_dir):    
     
-    output_img_fn = os.path.splitext(os.path.normpath(args.csv))[0] + ".nrrd"
+    output_img_fn = os.path.normpath(out_dir) + ".nrrd"
     out_np = np.zeros(output_size, dtype=np.ushort)
 
-    output_img_diffusor_fn = os.path.splitext(os.path.normpath(args.csv))[0] + "_diffusor.nrrd"    
+    output_img_diffusor_fn = os.path.normpath(out_dir) + "_diffusor.nrrd"    
     out_diffusor_np = np.random.normal(loc=args.b_mean, scale=args.b_std, size=output_size)
 
     print("Merging groups...")

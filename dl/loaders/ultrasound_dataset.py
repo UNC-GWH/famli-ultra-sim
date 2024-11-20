@@ -11,13 +11,16 @@ from torch import nn
 from torch.nn.utils.rnn import pad_sequence
 
 
-import pytorch_lightning as pl
+from lightning.pytorch.core import LightningDataModule
 
 import monai
 from monai.transforms import (    
     LoadImage,
     LoadImaged
 )
+from monai.data import ITKReader
+
+from transforms import ultrasound_transforms
 
 class USDataset(Dataset):
     def __init__(self, df, mount_point = "./", transform=None, img_column="img_path", class_column=None, ga_column=None, scalar_column=None, repeat_channel=True, return_head=False):
@@ -86,7 +89,7 @@ class USDatasetV2(Dataset):
         self.ga_column = ga_column
         self.scalar_column = scalar_column
         self.return_head = return_head
-        self.loader = LoadImage(reverse_indexing=True)
+        self.loader = LoadImage()
 
     def __len__(self):
         return len(self.df.index)
@@ -225,7 +228,7 @@ class LotusDataset(Dataset):
         
         return self.loader(d)
     
-class LotusDataModule(pl.LightningDataModule):
+class LotusDataModule(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, img_column="img_path", seg_column="seg_path", train_transform=None, valid_transform=None, test_transform=None, drop_last=False):
         super().__init__()
 
@@ -352,6 +355,95 @@ class USDatasetBlindSweep(Dataset):
             # except Exception as e:
             #     print(e, file=sys.stderr)
         return torch.cat(imgs)
+    
+class USDatasetBlindSweepWTag(Dataset):
+    def __init__(self, df, mount_point = "./", img_column='file_path', tag_column='tag', ga_column='ga_boe', transform=None, id_column='study_id', max_sweeps=3):
+        self.df = df
+        self.mount_point = mount_point
+        self.transform = transform
+        self.img_column = img_column
+        self.ga_column = ga_column
+        self.id_column = id_column
+        self.max_sweeps = max_sweeps
+        self.tag_column = tag_column
+
+        self.keys = self.df.index
+
+        if self.id_column:        
+            self.df_group = self.df.groupby(id_column)            
+            self.keys = list(self.df_group.groups.keys())
+
+        self.tags_dict = {'M': 0,
+            'L0': 1,
+            'L1': 2,
+            'R0': 3,
+            'R1': 4,
+            'C1': 5,
+            'C2': 6,
+            'C3': 7,
+            'C4': 8}
+
+    def __len__(self):
+        return len(self.keys)
+
+    def __getitem__(self, idx):
+
+        
+        df_group = self.df_group.get_group(self.keys[idx])
+        ga = float(df_group[self.ga_column].unique()[0])
+    
+        img_d = self.create_seq(df_group)
+        img_d['ga_boe'] = torch.tensor([ga], dtype=torch.float32)
+    
+        return img_d
+
+    def create_seq(self, df):
+
+        # shuffle
+        df = df.sample(frac=1)
+
+        # get maximum number of samples, -1 uses all
+        max_sweeps = len(df.index)
+        if self.max_sweeps > -1:
+            max_sweeps = min(max_sweeps, self.max_sweeps)        
+
+        # get the rows from the shuffled dataframe and sort them
+        df = df[0:max_sweeps].sort_index()
+
+        # read all of them
+        
+        imgs = {}
+
+        imgs['tag'] = []
+
+        num_sweeps = 0
+
+        for idx, row in df.iterrows():
+            
+            img_path = os.path.join(self.mount_point, row[self.img_column])                
+            img_np, head = nrrd.read(img_path, index_order="C")
+
+            if len(img_np.shape) == 4:
+                img_np = img_np[:,:,:,0]
+
+            img_t = torch.tensor(img_np)
+
+            if self.transform:
+                img_t = self.transform(img_t)
+
+            imgs[num_sweeps] = img_t
+            num_sweeps += 1
+
+            imgs['tag'].append(self.tags_dict[row[self.tag_column]])
+
+        for k in range(self.max_sweeps):
+            if k not in imgs:
+                imgs[k] = torch.zeros(16, 256, 256, dtype=torch.float32)
+                imgs['tag'].append(0)
+        
+        imgs['tag'] = torch.tensor(imgs['tag'], dtype=torch.long)
+        
+        return imgs
 
 class USDatasetVolumes(Dataset):
     def __init__(self, df, mount_point = "./", num_frames=0, img_column='img_path', ga_column='ga_boe', id_column='study_id', max_seq=-1, transform=None):
@@ -461,7 +553,7 @@ class USDatasetVolumes(Dataset):
 #         return (self.transform(seq_np), np.array([ga]))
 
 
-class USDataModule(pl.LightningDataModule):
+class USDataModule(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, img_column="img_path", class_column=None, ga_column=None, scalar_column=None, train_transform=None, valid_transform=None, test_transform=None, drop_last=False, repeat_channel=True, target_column=None):
         super().__init__()
 
@@ -498,7 +590,7 @@ class USDataModule(pl.LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last)
 
-class USDataModuleV2(pl.LightningDataModule):
+class USDataModuleV2(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, img_column="img_path", class_column=None, ga_column=None, scalar_column=None, train_transform=None, valid_transform=None, test_transform=None, drop_last=False, target_column=None):
         super().__init__()
 
@@ -535,7 +627,7 @@ class USDataModuleV2(pl.LightningDataModule):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last)
 
 
-class SimuDataModule(pl.LightningDataModule):
+class SimuDataModule(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, img_column="img_path", class_column=None, ga_column=None, scalar_column=None, train_transform=None, valid_transform=None, test_transform=None, drop_last=False, repeat_channel=True, target_column=None):
         super().__init__()
 
@@ -572,7 +664,7 @@ class SimuDataModule(pl.LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last)
 
-class USDataModuleBlindSweep(pl.LightningDataModule):
+class USDataModuleBlindSweep(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, num_frames=50, max_sweeps=-1, img_column='uuid_path', ga_column=None, id_column=None, train_transform=None, valid_transform=None, test_transform=None, drop_last=False):
         super().__init__()
 
@@ -598,6 +690,7 @@ class USDataModuleBlindSweep(pl.LightningDataModule):
         self.train_ds = USDatasetBlindSweep(self.df_train, mount_point=self.mount_point, num_frames=self.num_frames, img_column=self.img_column, ga_column=self.ga_column,id_column=self.id_column, max_sweeps=self.max_sweeps, transform=self.train_transform)
         self.val_ds = USDatasetBlindSweep(self.df_val, mount_point=self.mount_point, num_frames=self.num_frames, img_column=self.img_column, ga_column=self.ga_column, id_column=self.id_column, max_sweeps=self.max_sweeps, transform=self.valid_transform)
         self.test_ds = USDatasetBlindSweep(self.df_test, mount_point=self.mount_point, num_frames=self.num_frames, img_column=self.img_column, ga_column=self.ga_column, id_column=self.id_column, max_sweeps=self.max_sweeps, transform=self.test_transform)
+        
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last, shuffle=True, collate_fn=self.pad_seq)
@@ -617,9 +710,68 @@ class USDataModuleBlindSweep(pl.LightningDataModule):
         ga = torch.stack(ga)
 
         return blind_sweeps, ga
+    
+
+class USDataModuleBlindSweepWTag(LightningDataModule):
+    def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=2, num_workers=4, max_sweeps=-1, max_sweeps_val=-1, img_column='uuid_path', ga_column=None, id_column=None, drop_last=False):
+        super().__init__()
+
+        self.df_train = df_train
+        self.df_val = df_val
+        self.df_test = df_test
+        self.mount_point = mount_point
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.img_column = img_column
+        self.ga_column = ga_column
+        self.id_column = id_column
 
 
-class USDataModuleVolumes(pl.LightningDataModule):
+        self.train_transform = ultrasound_transforms.BlindSweepWTagTrainTransforms()
+        self.valid_transform = ultrasound_transforms.BlindSweepWTagEvalTransforms()
+        self.test_transform = ultrasound_transforms.BlindSweepWTagEvalTransforms()
+        self.drop_last=drop_last
+        self.max_sweeps = max_sweeps
+        self.max_sweeps_val = max_sweeps_val
+
+    def setup(self, stage=None):
+
+        # Assign train/val datasets for use in dataloaders
+        self.train_ds = USDatasetBlindSweepWTag(self.df_train, mount_point=self.mount_point, img_column=self.img_column, ga_column=self.ga_column,id_column=self.id_column, max_sweeps=self.max_sweeps, transform=self.train_transform)
+        self.val_ds = USDatasetBlindSweepWTag(self.df_val, mount_point=self.mount_point, img_column=self.img_column, ga_column=self.ga_column, id_column=self.id_column, max_sweeps=-1, transform=self.valid_transform)
+        self.test_ds = USDatasetBlindSweepWTag(self.df_test, mount_point=self.mount_point, img_column=self.img_column, ga_column=self.ga_column, id_column=self.id_column, max_sweeps=-1, transform=self.test_transform)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last, shuffle=True, collate_fn=self.pad_seq)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_ds, batch_size=1, num_workers=self.num_workers, drop_last=self.drop_last, collate_fn=self.pad_seq)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds, batch_size=1, num_workers=self.num_workers, drop_last=self.drop_last, collate_fn=self.pad_seq)
+
+    def pad_seq(self, batch):
+
+        img_d = {}
+
+        keys = batch[0].keys()
+
+        for k in keys:
+            if isinstance(k, int):
+                img_d[k] = [bs[k].squeeze(0) for bs in batch]
+                img_d[k] = pad_sequence(img_d[k], batch_first=True, padding_value=0.0).unsqueeze(1)
+
+        img_d[self.ga_column] = torch.stack([g[self.ga_column] for g in batch])
+
+        if len(img_d[self.ga_column].shape) == 1:
+            img_d[self.ga_column] = img_d[self.ga_column].unsqueeze(-1)
+        
+        img_d['tag'] = torch.stack([g['tag'] for g in batch])
+
+        return img_d
+
+
+class USDataModuleVolumes(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=32, num_workers=4, max_seq=5, img_column='img_path', ga_column='ga_boe', id_column='study_id', train_transform=None, valid_transform=None, test_transform=None, drop_last=False):
         super().__init__()
 
@@ -702,10 +854,11 @@ class USZDataset(Dataset):
         
         if(self.transform):
             img = self.transform(img)
+
         
         return img
 
-class USZDataModule(pl.LightningDataModule):
+class USZDataModule(LightningDataModule):
     def __init__(self, df_train, df_val, df_test, mount_point="./", batch_size=256, num_workers=4, img_column="img_path", train_transform=None, valid_transform=None, test_transform=None, drop_last=False):
         super().__init__()
 
@@ -736,4 +889,126 @@ class USZDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last)
+    
+
+
+class FluidDataset(Dataset):
+    def __init__(self, df, mount_point = "./", transform=None, img_column="img", seg_column="seg", rois=["Amniotic_fluid", "Maternal_bladder", "Fetal_chest_abdomen", "Fetal_head", "Fetal_heart", "Fetal_limb_other", "Placenta", "Umbilical_cord"]):
+        self.df = df
+        self.mount_point = mount_point
+        self.transform = transform
+        self.img_column = img_column        
+        self.seg_column = seg_column
+        self.rois = rois
+
+        # self.colname_roi_name_map = {'Amniotic_fluid_indicator': 'Amniotic_fluid',
+        #                 'Maternal_bladder_indicator': 'Maternal_bladder',
+        #                 'fetal_chest_abdomen_indicator': 'Fetal_chest_abdomen',
+        #                 'fetal_head_indicator': 'Fetal_head',
+        #                 'fetal_heart_indicator': 'Fetal_heart',
+        #                 'fetal_limb_other_indicator': 'Fetal_limb_other',
+        #                 'placenta_indicator': 'Placenta',
+        #                 'umbilical_cord_indicator': 'Umbilical_cord',
+        #                 'dropout_indicator': 'Dropout',
+        #                 'shadowing_indicator': 'Shadowing'}
+
+    def __len__(self):
+        return len(self.df.index)
+
+    def __getitem__(self, idx):
+        
+        img_path = os.path.join(self.mount_point, self.df.iloc[idx][self.img_column])
+        seg_path = os.path.join(self.mount_point, self.df.iloc[idx][self.seg_column])
+
+        reader = ITKReader()
+        img, _ = reader.get_data(reader.read(img_path))
+
+        # img = sitk.ReadImage(img_path)
+        img_t = torch.tensor(img)
+
+        reader = ITKReader()
+        seg, _ = reader.get_data(reader.read(seg_path))
+        seg_t = torch.tensor(seg)
+        
+        img_d = {self.img_column: img_t, self.seg_column: seg_t}
+        
+        if self.transform:
+            return self.transform(img_d)
+        return img_d
+
+class FluidDataModule(LightningDataModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters(logger=False)
+
+        self.df_train = pd.read_csv(self.hparams.csv_train)
+        self.df_val = pd.read_csv(self.hparams.csv_valid)
+        self.df_test = pd.read_csv(self.hparams.csv_test)
+        
+        self.mount_point = self.hparams.mount_point
+        self.batch_size = self.hparams.batch_size
+        self.num_workers = self.hparams.num_workers
+        self.img_column = self.hparams.img_column
+        self.seg_column = self.hparams.seg_column
+        self.drop_last = bool(self.hparams.drop_last)
+
+        self.train_transform = ultrasound_transforms.FluidTrainTransforms()
+        self.valid_transform = ultrasound_transforms.FluidEvalTransforms()
+        self.test_transform = ultrasound_transforms.FluidEvalTransforms()
+
+    @staticmethod
+    def add_data_specific_args(parent_parser):
+
+        group = parent_parser.add_argument_group("SaxiOctreeDataModule")
+        
+        group.add_argument('--batch_size', type=int, default=8)
+        group.add_argument('--num_workers', type=int, default=6)
+        group.add_argument('--img_column', type=str, default="img")
+        group.add_argument('--seg_column', type=str, default="seg")
+        group.add_argument('--csv_train', type=str, default=None, required=True)
+        group.add_argument('--csv_valid', type=str, default=None, required=True)
+        group.add_argument('--csv_test', type=str, default=None, required=True)
+        group.add_argument('--mount_point', type=str, default="./")
+        group.add_argument('--drop_last', type=int, default=0)
+
+        return parent_parser
+
+    def collate_fn(self, batch):
+        X = [b[self.img_column] for b in batch]
+
+        x_v = [x[0] for x in X]
+        x_f = [x[1] for x in X]
+        
+        X_v = pad_sequence(x_v, batch_first=True, padding_value=0.0)
+        X_f = pad_sequence(x_f, batch_first=True, padding_value=0.0)
+
+
+        Y = [b[self.seg_column] for b in batch]
+
+        y_v = [y[0] for y in Y]
+        y_f = [y[1] for y in Y]
+        
+        Y_v = pad_sequence(y_v, batch_first=True, padding_value=0.0)
+        Y_f = pad_sequence(y_f, batch_first=True, padding_value=0.0)
+        
+        return {self.img_column: (X_v, X_f), self.seg_column: (Y_v, Y_f)}
+
+    def setup(self, stage=None):
+
+        # Assign train/val datasets for use in dataloaders
+        self.train_ds = FluidDataset(self.df_train, self.mount_point, img_column=self.img_column, seg_column=self.seg_column, transform=self.train_transform)
+        self.val_ds = FluidDataset(self.df_val, self.mount_point, img_column=self.img_column, seg_column=self.seg_column, transform=self.valid_transform)
+        self.test_ds = FluidDataset(self.df_test, self.mount_point, img_column=self.img_column, seg_column=self.seg_column, transform=self.test_transform)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last, shuffle=True, prefetch_factor=2, collate_fn=self.collate_fn)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last, collate_fn=self.collate_fn)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.drop_last, collate_fn=self.collate_fn)
+
+
 

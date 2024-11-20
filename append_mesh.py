@@ -35,6 +35,16 @@ def merge_meshes_in_directory(args):
 
     append_filter.Update()
 
+    if args.decimate > 0.0:
+        decimate = vtk.vtkDecimatePro()
+        decimate.SetInputData(append_filter.GetOutput())
+        decimate.SetTargetReduction(args.decimate)
+        decimate.Update()
+
+        append_filter = vtk.vtkAppendPolyData()
+        append_filter.AddInputData(decimate.GetOutput())
+        append_filter.Update()
+
     # Output merged mesh
     if args.out.lower().endswith('.stl'):
         writer = vtk.vtkSTLWriter()
@@ -56,6 +66,7 @@ def merge_meshes_in_directory(args):
 def main():
     parser = argparse.ArgumentParser(description='Merge STL, OBJ, and VTK files in a directory into a single STL file.')
     parser.add_argument('--dir', type=str, help='Directory containing the mesh files to merge.')
+    parser.add_argument('--decimate', type=float, help='Use decimate pro filter to reduce the number of triangles in the mesh. This is the target reduction (default: 0.0 or no reduction)', default=0.0)
     parser.add_argument('--out', type=str, help='Output filename', default='out.stl')
     
     args = parser.parse_args()

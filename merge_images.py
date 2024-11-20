@@ -51,8 +51,8 @@ class MergeGroup():
 
                 out_np[resampled_img_np > 0] = (resampled_img_np*(label))[resampled_img_np > 0]
 
-                mean = row[args.mean]
-                std = row[args.std]
+                mean = np.abs(row[args.mean])
+                std = np.abs(row[args.std])
 
                 out_diffusor_np[resampled_img_np > 0] = (np.clip(np.random.normal(loc=mean, scale=std, size=out_np.shape), a_min=args.a_min, a_max=args.a_max))[resampled_img_np > 0]          
 
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     parser.add_argument('--mount_dir', type=str, help='Mount directory', default="./")
     parser.add_argument('--group_order', type=str, nargs='+', help='Group order to merge. Latter values replace preceding values.', default=
         # ["lady",
-        # "uterus",
+        #"uterus",
         ["gestational",
         "fetus",
         "visceral",

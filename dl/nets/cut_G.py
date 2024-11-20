@@ -6,43 +6,43 @@ from nets.upsample_layer import Upsample
 from nets.resnet_block import ResnetBlock
 
 class Generator(nn.Module):
-    def __init__(self, in_channels=1, features=64, residuals=9):
+    def __init__(self, in_channels=1, features=64, residuals=9, conv3d=False):
         super().__init__()
 
         layers = [
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(in_channels, features, kernel_size=7),
-            nn.InstanceNorm2d(features),
+            nn.ReflectionPad2d(3) if not conv3d else nn.ReflectionPad3d(3),
+            nn.Conv2d(in_channels, features, kernel_size=7) if not conv3d else nn.Conv3d(in_channels, features, kernel_size=7),
+            nn.InstanceNorm2d(features) if not conv3d else nn.InstanceNorm3d(features),
             nn.ReLU(True)
         ]
         features_prev = features
         for i in range(2):
             features *= 2
             layers += [
-                nn.Conv2d(features_prev, features, kernel_size=3, stride=1, padding=1),
-                nn.InstanceNorm2d(features),
+                nn.Conv2d(features_prev, features, kernel_size=3, stride=1, padding=1) if not conv3d else nn.Conv3d(features_prev, features, kernel_size=3, stride=1, padding=1),
+                nn.InstanceNorm2d(features) if not conv3d else nn.InstanceNorm3d(features),
                 nn.ReLU(True),
-                Downsample(features)
+                Downsample(features, conv3d=conv3d)
                 # nn.ReflectionPad2d(1),
                 # nn.Conv2d(features, features, kernel_size=3, stride=2)
             ]
             features_prev = features
         for i in range(residuals):
-            layers += [ResnetBlock(features_prev)]
+            layers += [ResnetBlock(features_prev, conv3d=conv3d)]
         for i in range(2):
             features //= 2
             layers += [
                 # nn.ReplicationPad2d(1),
                 # nn.ConvTranspose2d(features_prev, features_prev, kernel_size=4, stride=2, padding=3),
-                Upsample(features_prev),
-                nn.Conv2d(features_prev, features, kernel_size=3, stride=1, padding=1),
-                nn.InstanceNorm2d(features),
+                Upsample(features_prev, conv3d=conv3d),
+                nn.Conv2d(features_prev, features, kernel_size=3, stride=1, padding=1) if not conv3d else nn.Conv3d(features_prev, features, kernel_size=3, stride=1, padding=1),
+                nn.InstanceNorm2d(features) if not conv3d else nn.InstanceNorm3d(features),
                 nn.ReLU(True)
             ]
             features_prev = features
         layers += [
-            nn.ReflectionPad2d(3),
-            nn.Conv2d(features_prev, in_channels, kernel_size=7),
+            nn.ReflectionPad2d(3) if not conv3d else nn.ReflectionPad3d(3),
+            nn.Conv2d(features_prev, in_channels, kernel_size=7) if not conv3d else nn.Conv3d(features_prev, in_channels, kernel_size=7),
             nn.Tanh(),
         ]
         self.model = nn.Sequential(*layers)

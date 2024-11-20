@@ -5,7 +5,11 @@ import torch.nn.functional as F
 import functools
 import torchvision 
 from torchvision import transforms as T
-import pytorch_lightning as pl
+
+
+import lightning as L
+from lightning.pytorch.core import LightningModule
+import os
 
 import torchmetrics
 
@@ -25,6 +29,7 @@ import numpy as np
 import random
 
 from nets.cut_D import Discriminator
+from .layers import TimeDistributed
 
 class GaussianNoise(nn.Module):    
     def __init__(self, mean=0.0, std=0.05):
@@ -57,7 +62,7 @@ class SaltAndPepper(nn.Module):
         x[noise_tensor > 1-self.prob/2] = pepper
         return x
 
-class UltrasoundRendering(pl.LightningModule):
+class UltrasoundRendering(LightningModule):
     def __init__(self, **kwargs): 
         super().__init__()
 
@@ -80,6 +85,24 @@ class UltrasoundRendering(pl.LightningModule):
         self.register_buffer("g_kernel", g_kernel)
 
         self.loss = nn.L1Loss()
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        hparams_group = parent_parser.add_argument_group(title="Ultrasound Rendering")
+        hparams_group.add_argument('--num_labels', help='Number of labels in the US model', type=int, default=12)
+        hparams_group.add_argument('--grid_w', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--grid_h', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--center_x', help='Position of the circle that creates the transducer', type=float, default=128.0)
+        hparams_group.add_argument('--center_y', help='Position of the circle that creates the transducer', type=float, default=-30.0)
+        hparams_group.add_argument('--r1', help='Radius of first circle', type=float, default=20.0)
+        hparams_group.add_argument('--r2', help='Radius of second circle', type=float, default=215.0)
+        hparams_group.add_argument('--theta', help='Aperture angle of transducer', type=float, default=np.pi/4.0)
+        hparams_group.add_argument('--alpha_coeff_boundary_map', help='Lotus model', type=float, default=0.1)
+        hparams_group.add_argument('--beta_coeff_scattering', help='Lotus model', type=float, default=10)
+        hparams_group.add_argument('--tgc', help='Lotus model', type=int, default=8)
+        hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=1)
+
+        return parent_parser
 
         
     def init_params(self, df):
@@ -330,6 +353,13 @@ class UltrasoundRendering(pl.LightningModule):
             grid = grid.repeat(repeats)
             inverse_grid = inverse_grid.repeat(repeats)
             mask_fan = mask_fan.repeat(repeats)
+        
+        if grid.shape[0] != x.shape[0]:
+            repeats = [1,]*len(x.shape)
+            repeats[0] = x.shape[0]
+            grid = grid.repeat(repeats)
+            inverse_grid = inverse_grid.repeat(repeats)
+            mask_fan = mask_fan.repeat(repeats)
 
         #UNWARP
         x = F.grid_sample(x.float(), grid, mode='nearest', padding_mode='zeros', align_corners=True)
@@ -451,37 +481,6 @@ class UltrasoundRenderingDisc(UltrasoundRendering):
         self.l1 = nn.L1Loss()
         self.mse = nn.MSELoss()
 
-
-
-class TimeDistributed(nn.Module):
-    def __init__(self, module, time_dim=1):
-        super(TimeDistributed, self).__init__()
-        self.module = module
-        self.time_dim = time_dim
- 
-    def forward(self, input_seq):
-        assert len(input_seq.size()) > 2
- 
-        # reshape input data --> (samples * timesteps, input_size)
-        # squash timesteps
-
-        size = list(input_seq.size())
-
-        batch_size = size[0]
-        time_steps = size.pop(self.time_dim)
-
-        size_reshape = [batch_size*time_steps] + list(size[1:])
-        reshaped_input = input_seq.contiguous().view(size_reshape)
- 
-        output = self.module(reshaped_input)
-        
-        output_size = [batch_size] + list(output.size())[1:]
-        output_size.insert(self.time_dim, time_steps)
-        
-        output = output.contiguous().view(output_size)
-
-        return output
-
 class ProjectionHead(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         """
@@ -513,7 +512,7 @@ class ProjectionHead(nn.Module):
         """
         return self.layers(x)
 
-class UltrasoundRenderingLinear(pl.LightningModule):
+class UltrasoundRenderingLinear(LightningModule):
     def __init__(self, **kwargs): 
         super().__init__()
 
@@ -541,10 +540,25 @@ class UltrasoundRenderingLinear(pl.LightningModule):
         self.register_buffer("inverse_grid", inverse_grid)
         self.register_buffer("mask_fan", mask)
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        hparams_group = parent_parser.add_argument_group(title="Ultrasound Rendering Linear")
+        hparams_group.add_argument('--num_labels', help='Number of labels in the US model', type=int, default=340)
+        hparams_group.add_argument('--grid_w', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--grid_h', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--center_x', help='Position of the circle that creates the transducer', type=float, default=128.0)
+        hparams_group.add_argument('--center_y', help='Position of the circle that creates the transducer', type=float, default=-30.0)
+        hparams_group.add_argument('--r1', help='Radius of first circle', type=float, default=20.0)
+        hparams_group.add_argument('--r2', help='Radius of second circle', type=float, default=215.0)
+        hparams_group.add_argument('--theta', help='Aperture angle of transducer', type=float, default=np.pi/4.0)        
+
+        return parent_parser
+
         
     def init_params(self, mean_diffusor_dict, variance_diffusor_dict):
-        self.mean_diffusor_dict = mean_diffusor_dict
-        self.variance_diffusor_dict =  variance_diffusor_dict
+        # self.mean_diffusor_dict = torch.nn.Parameter(mean_diffusor_dict)
+        self.mean_diffusor_dict = torch.tensor(mean_diffusor_dict)
+        self.variance_diffusor_dict =  torch.nn.Parameter(variance_diffusor_dict)
 
     def init_grids(self, w, h, center_x, center_y, r1, r2, theta):
         grid = self.compute_grid(w, h, center_x, center_y, r1, r2, theta)
@@ -576,6 +590,7 @@ class UltrasoundRenderingLinear(pl.LightningModule):
             grid[i] = torch.stack((x, y), dim=1)  # Update grid with coordinates
 
         return grid
+        
         
 
     def compute_grid_inverse(self, grid):
@@ -722,7 +737,7 @@ class UltrasoundRenderingLinear(pl.LightningModule):
 
         self.log("val_loss", val_loss, sync_dist=True)
 
-class UltrasoundRenderingLinearV2(pl.LightningModule):
+class UltrasoundRenderingLinearV2(LightningModule):
     def __init__(self, **kwargs): 
         super().__init__()
 
@@ -933,7 +948,7 @@ class UltrasoundRenderingLinearV2(pl.LightningModule):
         self.log("val_loss", val_loss, sync_dist=True)
 
     
-class UltrasoundRenderingConv1d(pl.LightningModule):
+class UltrasoundRenderingConv1d(LightningModule):
     def __init__(self, **kwargs): 
         super().__init__()
 
@@ -1153,16 +1168,11 @@ class UltrasoundRenderingConv1d(pl.LightningModule):
 
 
 
-class UltrasoundRenderingCutTarget(pl.LightningModule):
+class UltrasoundRenderingCutTarget(LightningModule):
     def __init__(self, **kwargs): 
         super().__init__()
 
         self.save_hyperparameters()
-        
-        self.us_simu_traced = torch.jit.load('/mnt/famli_netapp_shared/C1_ML_Analysis/src/famli-ultra-sim/trained_models/cut_linear_ae.pt')
-        self.us_simu_traced.eval()
-        for param in self.us_simu_traced.parameters():
-            param.requires_grad = False
         
         # df = pd.read_csv(acoustic_params_fn)        
         # accoustic_imped,attenuation,mu_0,mu_1,sigma_0
@@ -1191,6 +1201,132 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
 
         self.transform_us = T.Compose([T.Pad((0, 80, 0, 0)), T.CenterCrop(256)])
 
+        from .us_simulation_jit import MergedLinearCutLabel11
+        self.us_simulator_cut_td = TimeDistributed(MergedLinearCutLabel11().eval(), time_dim=2).eval()
+
+        for param in self.us_simulator_cut_td.parameters():
+            param.requires_grad = False
+
+        from .us_simu import VolumeSamplingBlindSweep
+        self.vs = VolumeSamplingBlindSweep(mount_point=self.hparams.mount_point).eval()
+        self.query_labels = torch.tensor([4, 7]) # label 4 = heart, label 7 = skeleton
+        
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        hparams_group = parent_parser.add_argument_group(title="Ultrasound Rendering Linear")
+        
+        hparams_group.add_argument('--grid_w', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--grid_h', help='Grid size for the simulation', type=int, default=256)
+        hparams_group.add_argument('--center_x', help='Position of the circle that creates the transducer', type=float, default=128.0)
+        hparams_group.add_argument('--center_y', help='Position of the circle that creates the transducer', type=float, default=-30.0)
+        hparams_group.add_argument('--r1', help='Radius of first circle', type=float, default=20.0)
+        hparams_group.add_argument('--r2', help='Radius of second circle', type=float, default=215.0)
+        hparams_group.add_argument('--theta', help='Aperture angle of transducer', type=float, default=np.pi/4.0)
+        hparams_group.add_argument('--num_frames_batch', help='Number of sweeps', type=int, default=512)
+        
+        
+        hparams_group.add_argument('--lr', '--learning-rate', default=1e-4, type=float, help='Learning rate')
+        hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+        
+        hparams_group.add_argument('--num_labels', help='Number of labels in the US model', type=int, default=12)
+        hparams_group.add_argument('--alpha_coeff_boundary_map', help='Lotus model', type=float, default=0.1)
+        hparams_group.add_argument('--beta_coeff_scattering', help='Lotus model', type=float, default=10)
+        hparams_group.add_argument('--tgc', help='Lotus model', type=int, default=8)
+        hparams_group.add_argument('--clamp_vals', help='Lotus model', type=int, default=0)
+
+
+        return parent_parser
+    
+    def on_fit_start(self):
+
+        # Define the file names directly without using out_dir
+        grid_t_file = 'grid_t.pt'
+        inverse_grid_t_file = 'inverse_grid_t.pt'
+        mask_fan_t_file = 'mask_fan_t.pt'
+        
+        self.grid_t = torch.load(grid_t_file).to(self.device)
+        self.inverse_grid_t = torch.load(inverse_grid_t_file).to(self.device)
+        self.mask_fan_t = torch.load(mask_fan_t_file).to(self.device)
+
+    def get_sweeps(self, X, X_origin, X_end):
+        
+        grid = None
+        inverse_grid = None
+        mask_fan = None
+        if hasattr(self, 'grid_t'):
+            grid_idx = torch.randint(low=0, high=self.grid_t.shape[0] - 1, size=(1,))
+            grid = self.grid_t[grid_idx]
+            inverse_grid = self.inverse_grid_t[grid_idx]
+            mask_fan = self.mask_fan_t[grid_idx]
+
+        X_label, Y_simu = self.volume_sampling(X, X_origin, X_end, grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
+
+        X_label = X_label.permute(0, 2, 1, 3, 4).view(-1, 1, X_label.shape[3], X_label.shape[4]).contiguous()
+        Y_simu = Y_simu.permute(0, 2, 1, 3, 4).view(-1, 1, Y_simu.shape[3], Y_simu.shape[4]).contiguous()
+
+        X_label, Y_simu = self.filter_ultrasounds_by_label(X_label, Y_simu)
+
+        ridx = torch.randperm(X_label.shape[0])
+
+        if hasattr(self.hparams, 'num_frames_batch'):
+            num_frames_batch = min(self.hparams.num_frames_batch, X_label.shape[0])
+
+            X_label = X_label[ridx][0:num_frames_batch]
+            Y_simu = Y_simu[ridx][0:num_frames_batch]
+
+        return X_label, Y_simu, grid, inverse_grid, mask_fan
+
+    def volume_sampling(self, X, X_origin, X_end, grid=None, inverse_grid=None, mask_fan=None, use_random=False):
+        self.us_simulator_cut_td.eval()
+
+        probe_origin_rand = None
+        probe_direction_rand = None
+        if use_random:
+            probe_origin_rand = torch.rand(3, device=self.device)*0.0001
+            probe_origin_rand = probe_origin_rand
+            rotation_ranges = ((-5, 5), (-5, 5), (-10, 10))  # ranges in degrees for x, y, and z rotations
+            probe_direction_rand = self.vs.random_affine_matrix(rotation_ranges).to(self.device)
+
+
+        sampled_sweeps = []
+        sampled_sweeps_simu = []
+
+        for tag in self.vs.tags:
+            
+            sampled_sweep = self.vs.diffusor_sampling_tag(tag, X.to(torch.float), X_origin.to(torch.float), X_end.to(torch.float), probe_origin_rand=probe_origin_rand, probe_direction_rand=probe_direction_rand, use_random=use_random)
+            sampled_sweep_simu = torch.cat([self.us_simulator_cut_td(ss.unsqueeze(dim=0), grid, inverse_grid, mask_fan) for ss in sampled_sweep], dim=0)
+
+            sampled_sweeps.append(sampled_sweep)
+            sampled_sweeps_simu.append(sampled_sweep_simu)
+
+        sampled_sweep = torch.cat(sampled_sweeps, dim=0)
+        sampled_sweep_simu = torch.cat(sampled_sweeps_simu, dim=0)
+
+        return sampled_sweep, sampled_sweep_simu
+    
+    def filter_ultrasounds_by_label(self, label_tensor, ultrasound_tensor):
+        """
+        Filters ultrasounds according to the query labels.
+
+        Args:
+            label_tensor (torch.Tensor): Tensor of labels with dimensions [Bs, 1, H, W].
+            ultrasound_tensor (torch.Tensor): Tensor of ultrasounds with dimensions [Bs, 1, H, W].
+            query_labels (list): List of labels to filter by.
+
+        Returns:
+            torch.Tensor: Filtered tensor of ultrasounds.
+        """
+
+        # Create a mask that identifies if any of the query labels are present in each image
+        mask = torch.any(torch.isin(label_tensor, self.query_labels.to(self.device)), dim=(1, 2, 3))
+
+        # Use the mask to filter the label_tensor and ultrasound_tensor
+        filtered_labels = label_tensor[mask]
+        filtered_ultrasounds = ultrasound_tensor[mask]
+
+        return filtered_labels, filtered_ultrasounds
+        
         
     def init_params(self, df):
         # df = pd.read_csv(acoustic_params_fn)
@@ -1479,7 +1615,7 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
         refl_map = div ** 2
         refl_map = torch.sigmoid(refl_map)      # 1 / (1 + (-refl_map).exp())
 
-        z_vals = self.render_rays(x.shape[2], x.shape[3], device=x.device)
+        z_vals = self.render_rays(x.shape[2], x.shape[3])
 
         # if CLAMP_VALS:
         #     attenuation_medium_map = torch.clamp(attenuation_medium_map, 0, 10)
@@ -1511,7 +1647,6 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
         return intensity_map
     
     
-    
     def configure_optimizers(self):        
         
         optimizer = optim.AdamW(self.parameters(),
@@ -1520,34 +1655,20 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
         
         return optimizer
     
-    def render_cut(self, X, mask_fan=None):
-
-        if mask_fan is None:
-            repeats = [1,]*len(X.shape)
-            repeats[0] = X.shape[0]
-            mask_fan = self.mask_fan.repeat(repeats)
-        
-        mean_diffusor = self.mean_diffusor_dict[X.to(torch.long)]
-        variance_diffusor = self.variance_diffusor_dict[X.to(torch.long)]
-        
-        X = mean_diffusor + torch.randn(X.shape, device=self.device) * variance_diffusor
-
-        return self.us_simu_traced(self.transform_us(X*mask_fan))*self.transform_us(mask_fan)
-         
-
     def training_step(self, train_batch, batch_idx):
-        seg = train_batch['seg']
-        img = train_batch['img']
-
-        repeats = [1,]*len(img.shape)
-        repeats[0] = img.shape[0]
-        mask_fan = self.transform_us(self.mask_fan.repeat(repeats))
+        X, X_origin, X_end = train_batch
         
-        fake_us = self.transform_us(self(seg))*mask_fan
-        
-        img = self.render_cut(seg, mask_fan)
+        X_label, Y_simu, grid, inverse_grid, mask_fan  = self.get_sweeps(X, X_origin, X_end)
 
-        loss = self.loss(fake_us, img)
+        repeats = [1,]*len(X_label.shape)
+        repeats[0] = X_label.shape[0]
+        grid = grid.repeat(repeats)
+        inverse_grid = inverse_grid.repeat(repeats)
+        mask_fan = mask_fan.repeat(repeats)
+        
+        X_simu = self(X_label, grid, inverse_grid, mask_fan)
+
+        loss = self.loss(X_simu, Y_simu)
 
         self.log("loss", loss)
 
@@ -1555,17 +1676,20 @@ class UltrasoundRenderingCutTarget(pl.LightningModule):
         
     
     def validation_step(self, val_batch, batch_idx):        
-        seg = val_batch['seg']
-        img = val_batch['img']
-
-        repeats = [1,]*len(img.shape)
-        repeats[0] = img.shape[0]
-        mask_fan = self.transform_us(self.mask_fan.repeat(repeats))
+        X, X_origin, X_end = val_batch
         
-        fake_us = self.transform_us(self(seg))*mask_fan
+        X_label, Y_simu, grid, inverse_grid, mask_fan  = self.get_sweeps(X, X_origin, X_end)
 
-        img = self.render_cut(seg, mask_fan)
+        repeats = [1,]*len(X_label.shape)
+        repeats[0] = X_label.shape[0]
+        grid = grid.repeat(repeats)
+        inverse_grid = inverse_grid.repeat(repeats)
+        mask_fan = mask_fan.repeat(repeats)
+        
+        X_simu = self(X_label, grid, inverse_grid, mask_fan)
 
-        val_loss = self.loss(fake_us, img)
+        loss = self.loss(X_simu, Y_simu)
 
-        self.log("val_loss", val_loss, sync_dist=True)
+        self.log("val_loss", loss, sync_dist=True)
+
+        return loss

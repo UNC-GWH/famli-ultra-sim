@@ -124,37 +124,36 @@ class ViewComponents:
         self.study_ids = self.df["study_id"].drop_duplicates().tolist()
 
         self.template_arr = [
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0499-5/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1336-3/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1398-3/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0447-5/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0615-3/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1453-3/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0626-2/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0664-4/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0749-4/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1485-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1489-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0754-2/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1491-2/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0941-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0795-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0869-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1275-1/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-0950-4/fetus/Fetus_Model.stl",
-            # "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/studies/FAM-025-1144-4/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_cross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_cross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_cross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
             "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_cross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_neutral_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_flexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl",
-            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/head_overflexed_arms_uncross_legs_uncross/fetus/Fetus_Model.stl"]
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB5/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB6/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB7/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/FB8/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/IB1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/IB2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/IB3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/hands_up1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic1/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic2/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic3/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic4/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic5/fetus/Fetus_Model.stl",
+            "Groups/FAMLI/Shared/C1_ML_Analysis/src/diffusion-models/blender/generic2/cephalic6/fetus/Fetus_Model.stl"]
 
         for template_fn in self.template_arr:
             surf = readSurf(os.path.join(self.mount_point, template_fn))
@@ -389,8 +388,12 @@ class ViewComponents:
                 return idx, study_id            
         return 0, self.study_ids[0]
     
+    def GetCurrentSurfId(self, idx):
+        return self.current_actor_index - (5 - idx)
+
     def LoadTemplateActors(self, idx):
-        self.current_surf_idx = self.current_actor_index - (5 - idx)
+        self.current_surf_idx = self.GetCurrentSurfId(idx)
+        print(self.current_surf_idx)
         self.main_mapper.SetInputData(self.template_surf[self.current_surf_idx])
 
     def NextTemplateActors(self):

@@ -21,7 +21,9 @@ parser.add_argument("--samples", help="Number of samples for cycles", type=int, 
 args = parser.parse_args()
 
 
-bpy.data.scenes["Scene"].cycles.samples = args.samples
+# bpy.data.scenes["Scene"].cycles.samples = args.samples
+render = bpy.context.scene.cycles
+render.samples = args.samples
 
 img_probe_fn = args.probe_fn
 out_dir = args.out

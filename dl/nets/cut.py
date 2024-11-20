@@ -11,12 +11,15 @@ from nets.cut_G import Generator
 from nets.cut_P import Head
 from nets.lotus import UltrasoundRendering, UltrasoundRenderingLinear, UltrasoundRenderingConv1d
 
-import pytorch_lightning as pl
+import lightning as L
+from lightning.pytorch.core import LightningModule
 import os
 
 from torchvision import transforms as T
 
-class CutG(pl.LightningModule):
+import numpy as np
+
+class CutG(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -171,7 +174,7 @@ class CutG(pl.LightningModule):
         loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
         return loss
 
-class Cut(pl.LightningModule):
+class Cut(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -206,6 +209,38 @@ class Cut(pl.LightningModule):
         self.automatic_optimization = False
 
         self.transform_us = T.Compose([T.Pad((0, 80, 0, 0)), T.CenterCrop(256)])
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+
+        parent_parser = UltrasoundRendering.add_model_specific_args(parent_parser)
+
+        hparams_group = parent_parser.add_argument_group('Cut Ultrasound Rendering')
+        hparams_group.add_argument('--lr', '--learning-rate', default=1e-4, type=float, help='Learning rate')
+        hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--betas', help='Betas for optimizer', nargs='+', type=float, default=(0.9, 0.999))    
+        hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
+        hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
+        hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)    
+        hparams_group.add_argument('--batch_size', help='Batch size', type=int, default=2)
+
+        hparams_group.add_argument('--center_y_start', help='Start of center_y', type=float, default=-40.0)
+        hparams_group.add_argument('--center_y_end', help='Delta of center_y', type=float, default=-20.0)    
+        hparams_group.add_argument('--r2_start', help='Start of radius r1', type=float, default=200.0)
+        hparams_group.add_argument('--r2_end', help='Delta of radius r1', type=float, default=210)
+        hparams_group.add_argument('--theta_start', help='Aperture angle of transducer', type=float, default=np.pi/6.0)
+        hparams_group.add_argument('--theta_end', help='Aperture angle of transducer delta', type=float, default=np.pi/4.0)
+        
+        
+        hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
+        hparams_group.add_argument('--diffusor_w', help='Weight of the diffusor', type=float, default=0.0)
+        # hparams_group.add_argument('--use_pre_trained_lotus', help='Weights from diffusor model', type=int, default=0)
+        hparams_group.add_argument('--warm_up_epochs_diffusor', help='Use the diffusor image for N number of epochs', type=int, default=0)        
+
+        hparams_group.add_argument('--create_grids', help='Force creation of grids. Creates and saves if not exist. Loads otherwise. Aperture angle of transducer delta', type=int, default=0)
+        hparams_group.add_argument('--n_grids', help='Number of grids for fake US', type=int, default=256)
+        
+        return parent_parser
 
     def configure_optimizers(self):
         opt_gen = optim.AdamW(
@@ -310,8 +345,9 @@ class Cut(pl.LightningModule):
 
         # Y is the real ultrasound
         labeled, Y = train_batch
-        X_x = labeled['img']
-        X_s = labeled['seg']        
+        # X_x = labeled['img']
+        # X_s = labeled['seg']    
+        X_s = labeled    
 
         opt_gen, opt_disc, opt_head = self.optimizers()
 
@@ -356,8 +392,9 @@ class Cut(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
 
         labeled, Y = val_batch
-        X_x = labeled['img']
-        X_s = labeled['seg']
+        # X_x = labeled['img']
+        # X_s = labeled['seg']
+        X_s = labeled
 
         grid_idx = torch.randint(low=0, high=self.hparams.n_grids - 1, size=(X_s.shape[0],))
         
@@ -423,7 +460,7 @@ class Cut(pl.LightningModule):
         return loss
     
 
-class CutLinear(pl.LightningModule):
+class CutLinear(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -449,9 +486,37 @@ class CutLinear(pl.LightningModule):
 
         self.transform_us = T.Compose([T.Pad((0, 80, 0, 0)), T.CenterCrop(256)])
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+
+        parent_parser = UltrasoundRenderingLinear.add_model_specific_args(parent_parser)
+
+        hparams_group = parent_parser.add_argument_group('Cut Ultrasound Rendering')
+        hparams_group.add_argument('--lr', '--learning-rate', default=1e-4, type=float, help='Learning rate')
+        hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--betas', help='Betas for optimizer', nargs='+', type=float, default=(0.9, 0.999))    
+        hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
+        hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
+        hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)    
+        hparams_group.add_argument('--batch_size', help='Batch size', type=int, default=2)
+
+        hparams_group.add_argument('--center_y_start', help='Start of center_y', type=float, default=-40.0)
+        hparams_group.add_argument('--center_y_end', help='Delta of center_y', type=float, default=-20.0)    
+        hparams_group.add_argument('--r2_start', help='Start of radius r1', type=float, default=200.0)
+        hparams_group.add_argument('--r2_end', help='Delta of radius r1', type=float, default=210)
+        hparams_group.add_argument('--theta_start', help='Aperture angle of transducer', type=float, default=np.pi/6.0)
+        hparams_group.add_argument('--theta_end', help='Aperture angle of transducer delta', type=float, default=np.pi/4.0)
+        
+        hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
+
+        hparams_group.add_argument('--create_grids', help='Force creation of grids. Creates and saves if not exist. Loads otherwise. Aperture angle of transducer delta', type=int, default=0)
+        hparams_group.add_argument('--n_grids', help='Number of grids for fake US', type=int, default=256)
+        
+        return parent_parser
+
     def configure_optimizers(self):
         opt_gen = optim.AdamW(
-            self.G.parameters(),
+            list(self.USR.parameters()) + list(self.G.parameters()),
             lr=self.hparams.lr,
             betas=self.hparams.betas,
             weight_decay=self.hparams.weight_decay            
@@ -552,8 +617,9 @@ class CutLinear(pl.LightningModule):
 
         # Y is the real ultrasound
         labeled, Y = train_batch
-        X_x = labeled['img']
-        X_s = labeled['seg']        
+        # X_x = labeled['img']
+        # X_s = labeled['seg']        
+        X_s = labeled
 
         opt_gen, opt_disc, opt_head = self.optimizers()
 
@@ -594,8 +660,9 @@ class CutLinear(pl.LightningModule):
     def validation_step(self, val_batch, batch_idx):
 
         labeled, Y = val_batch
-        X_x = labeled['img']
-        X_s = labeled['seg']
+        # X_x = labeled['img']
+        # X_s = labeled['seg']        
+        X_s = labeled
 
         X_ = self.USR(X_s)
         X = self.transform_us(X_)
@@ -655,7 +722,7 @@ class CutLinear(pl.LightningModule):
         return loss
 
 
-class CutAE(pl.LightningModule):
+class CutAE(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -798,7 +865,7 @@ class CutAE(pl.LightningModule):
         # Y is the real ultrasound
         labeled, Y = train_batch
         X_x = labeled['img']
-        X_s = labeled['seg']        
+        X_s = labeled['seg']                
 
         opt_gen, opt_disc, opt_head = self.optimizers()
 
@@ -910,7 +977,7 @@ class CutAE(pl.LightningModule):
 
 
 
-class CutLotus(pl.LightningModule):
+class CutLotus(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
 
@@ -1142,7 +1209,7 @@ class CutLotus(pl.LightningModule):
         loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
         return loss
 
-class CUTModelLightning(pl.LightningModule):
+class CUTModelLightning(LightningModule):
     """ This class implements CUT and FastCUT model, described in the paper
     Contrastive Learning for Unpaired Image-to-Image Translation
     Taesung Park, Alexei A. Efros, Richard Zhang, Jun-Yan Zhu
@@ -1367,3 +1434,310 @@ class CUTModelLightning(pl.LightningModule):
             loss_D = self.compute_D_loss()
             self.log('loss_D', loss_D, on_step=True, on_epoch=True, prog_bar=True, logger=True)
             return loss_D
+
+
+class CutLabel11(LightningModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters()
+        
+        self.D_Y = Discriminator()
+
+        # self.USR = UltrasoundRendering(**kwargs)
+        self.USR = UltrasoundRendering(num_labels=12, grid_w=256, grid_h=256, center_x=128.0, center_y=-30.0, r1=20.0, r2=215.0, theta=0.7853981633974483, alpha_coeff_boundary_map=0.5, tgc=8, beta_coeff_scattering=10, clamp_vals=1)
+        # self.USR.load_state_dict(state_dict=torch.load('/mnt/raid/C1_ML_Analysis/train_output/diffusionAE/extract_frames_Dataset_C_masked_resampled_256_spc075_wscores_meta_BPD01_MACFL025-7mo-9mo/v0.4/epoch=72-val_loss=0.01_usr.pt'))
+        # for param in self.USR.parameters():
+        #     param.requires_grad = False
+
+        self.G = Generator()
+        self.H = Head()
+
+        self.l1 = nn.L1Loss()
+        self.mse = nn.MSELoss()
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='none')
+
+        self.automatic_optimization = False
+
+        self.transform_us = T.Compose([T.Pad((0, 80, 0, 0)), T.CenterCrop(256)])
+
+        # from .us_simu import VolumeSamplingBlindSweep
+        # self.vs = VolumeSamplingBlindSweep(mount_point=self.hparams.mount_point).eval()
+        # self.query_labels = torch.tensor([4, 7]) # label 4 = heart, label 7 = skeleton
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+
+        parent_parser = UltrasoundRendering.add_model_specific_args(parent_parser)
+
+        hparams_group = parent_parser.add_argument_group('Cut Ultrasound Rendering')
+        hparams_group.add_argument('--lr', '--learning-rate', default=1e-4, type=float, help='Learning rate')
+        hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--betas', help='Betas for optimizer', nargs='+', type=float, default=(0.9, 0.999))    
+        hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
+        hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
+        hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)    
+        hparams_group.add_argument('--batch_size', help='Batch size', type=int, default=2)
+
+        hparams_group.add_argument('--center_y_start', help='Start of center_y', type=float, default=-40.0)
+        hparams_group.add_argument('--center_y_end', help='Delta of center_y', type=float, default=-20.0)    
+        hparams_group.add_argument('--r2_start', help='Start of radius r1', type=float, default=200.0)
+        hparams_group.add_argument('--r2_end', help='Delta of radius r1', type=float, default=210)
+        hparams_group.add_argument('--theta_start', help='Aperture angle of transducer', type=float, default=np.pi/6.0)
+        hparams_group.add_argument('--theta_end', help='Aperture angle of transducer delta', type=float, default=np.pi/4.0)
+        
+        hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
+
+        hparams_group.add_argument('--create_grids', help='Force creation of grids. Creates and saves if not exist. Loads otherwise. Aperture angle of transducer delta', type=int, default=0)
+        hparams_group.add_argument('--n_grids', help='Number of grids for fake US', type=int, default=256)
+        
+        return parent_parser
+
+    def configure_optimizers(self):
+        opt_gen = optim.AdamW(
+            self.G.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay            
+        )
+        opt_disc = optim.AdamW(
+            self.D_Y.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay
+        )        
+        opt_head = optim.AdamW(
+            self.H.parameters(),
+            lr=self.hparams.lr,
+            betas=self.hparams.betas,
+            weight_decay=self.hparams.weight_decay
+        )
+
+        return [opt_gen, opt_disc, opt_head]
+    
+    # This is only called during inference time to set a custom grid
+    def init_grid(self, w, h, center_x, center_y, r1, r2, theta):
+        grid = self.USR.compute_grid(w, h, center_x, center_y, r1, r2, theta)
+        inverse_grid, mask = self.USR.compute_grid_inverse(grid)
+        
+        self.USR.grid = self.USR.normalize_grid(grid)
+        self.USR.inverse_grid = self.USR.normalize_grid(inverse_grid)
+        self.USR.mask_fan = mask
+
+    def forward(self, X):
+        return self.G(self.transform_us(self.USR(X)))*self.transform_us(self.USR.mask_fan).to(self.device)
+
+    # def scheduler_step(self):
+    #     self.scheduler_disc.step()
+    #     self.scheduler_gen.step()
+    #     self.scheduler_mlp.step()
+
+    def set_requires_grad(self, nets, requires_grad=False):
+        """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+        Parameters:
+            nets (network list)   -- a list of networks
+            requires_grad (bool)  -- whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
+
+    def on_fit_start(self):
+
+        # Define the file names directly without using out_dir
+        grid_t_file = 'grid_t.pt'
+        inverse_grid_t_file = 'inverse_grid_t.pt'
+        mask_fan_t_file = 'mask_fan_t.pt'
+
+        if self.hparams.create_grids or not os.path.exists(grid_t_file):
+            grid_tensor = []
+            inverse_grid_t = []
+            mask_fan_t = []
+
+            for i in range(self.hparams.n_grids):
+
+                grid_w, grid_h = self.hparams.grid_w, self.hparams.grid_h
+                center_x = self.hparams.center_x
+                r1 = self.hparams.r1
+
+                center_y = self.hparams.center_y_start + (self.hparams.center_y_end - self.hparams.center_y_start) * (torch.rand(1))
+                r2 = self.hparams.r2_start + ((self.hparams.r2_end - self.hparams.r2_start) * torch.rand(1)).item()
+                theta = self.hparams.theta_start + ((self.hparams.theta_end - self.hparams.theta_start) * torch.rand(1)).item()
+                
+                grid, inverse_grid, mask = self.USR.init_grids(grid_w, grid_h, center_x, center_y, r1, r2, theta)
+
+                grid_tensor.append(grid.unsqueeze(dim=0))
+                inverse_grid_t.append(inverse_grid.unsqueeze(dim=0))
+                mask_fan_t.append(mask.unsqueeze(dim=0))
+
+            self.grid_t = torch.cat(grid_tensor).to(self.device)
+            self.inverse_grid_t = torch.cat(inverse_grid_t).to(self.device)
+            self.mask_fan_t = torch.cat(mask_fan_t).to(self.device)
+
+            # Save tensors directly to the current directory
+            
+            torch.save(self.grid_t, grid_t_file)
+            torch.save(self.inverse_grid_t, inverse_grid_t_file)
+            torch.save(self.mask_fan_t, mask_fan_t_file)
+
+            # print("Grids SAVED!")
+            # print(self.grid_t.shape, self.inverse_grid_t.shape, self.mask_fan_t.shape)
+        
+        elif not hasattr(self, 'grid_t'):
+            # Load tensors directly from the current directory
+            self.grid_t = torch.load(grid_t_file).to(self.device)
+            self.inverse_grid_t = torch.load(inverse_grid_t_file).to(self.device)
+            self.mask_fan_t = torch.load(mask_fan_t_file).to(self.device)
+
+    
+
+    # def volume_sampling(self, X, X_origin, X_end, use_random=False):
+
+    #     probe_origin_rand = None
+    #     probe_direction_rand = None
+    #     if use_random:
+    #         probe_origin_rand = torch.rand(3, device=self.device)*0.0001
+    #         probe_origin_rand = probe_origin_rand
+    #         rotation_ranges = ((-5, 5), (-5, 5), (-10, 10))  # ranges in degrees for x, y, and z rotations
+    #         probe_direction_rand = self.vs.random_affine_matrix(rotation_ranges).to(self.device)
+
+    #     sampled_sweeps = []
+
+    #     for tag in self.vs.tags:
+            
+    #         sampled_sweep = self.vs.diffusor_sampling_tag(tag, X.to(torch.float), X_origin.to(torch.float), X_end.to(torch.float), probe_origin_rand=probe_origin_rand, probe_direction_rand=probe_direction_rand, use_random=use_random)
+            
+    #         sampled_sweeps.append(sampled_sweep)
+
+    #     sampled_sweep = torch.cat(sampled_sweeps, dim=0)
+
+    #     return sampled_sweep
+    
+    # def get_sweeps(self, X, X_origin, X_end):
+
+    #     X_label = self.volume_sampling(X, X_origin, X_end)
+
+    #     X_label = X_label.permute(0, 2, 1, 3, 4).view(-1, 1, X_label.shape[3], X_label.shape[4]).contiguous()
+
+    #     X_label = self.filter_ultrasounds_by_label(X_label)
+
+    #     ridx = torch.randperm(X_label.shape[0])
+
+    #     if hasattr(self.hparams, 'num_frames_batch'):
+    #         num_frames_batch = min(self.hparams.num_frames_batch, X_label.shape[0])
+
+    #         X_label = X_label[ridx][0:num_frames_batch]
+
+    #     return X_label
+
+    def training_step(self, train_batch, batch_idx):
+
+        # Y is the real ultrasound
+        X_s, Y = train_batch
+
+        opt_gen, opt_disc, opt_head = self.optimizers()
+
+        grid_idx = torch.randint(low=0, high=self.hparams.n_grids - 1, size=(X_s.shape[0],))
+        
+        grid = self.grid_t[grid_idx]
+        inverse_grid = self.inverse_grid_t[grid_idx]
+        mask_fan = self.mask_fan_t[grid_idx]
+
+        X_ = self.USR(X_s, grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
+        X = self.transform_us(X_)
+        Y_fake = self.G(X)*self.transform_us(mask_fan)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y)           
+
+        # update D
+        self.set_requires_grad(self.D_Y, True)
+        opt_disc.zero_grad()
+        loss_d = self.compute_D_loss(Y, Y_fake)
+        loss_d.backward()
+        opt_disc.step()
+
+        # update G
+        self.set_requires_grad(self.D_Y, False)
+        opt_gen.zero_grad()
+        opt_head.zero_grad()
+        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+
+        loss_g.backward()
+        opt_gen.step()
+        opt_head.step()
+
+        
+        self.log("train_loss_g", loss_g)
+        self.log("train_loss_d", loss_d)
+
+    def validation_step(self, val_batch, batch_idx):
+
+        X_s, Y = val_batch
+
+        grid_idx = torch.randint(low=0, high=self.hparams.n_grids - 1, size=(X_s.shape[0],))
+        
+        grid = self.grid_t[grid_idx]
+        inverse_grid = self.inverse_grid_t[grid_idx]
+        mask_fan = self.mask_fan_t[grid_idx]
+
+        X_ = self.USR(X_s, grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
+        X = self.transform_us(X_)
+        Y_fake = self.G(X)*self.transform_us(mask_fan)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y)           
+        
+        loss_G = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+
+        self.log("val_loss", loss_G, sync_dist=True)
+        
+
+    def compute_D_loss(self, Y, Y_fake):
+        # Fake
+        fake = Y_fake.detach()
+        pred_fake = self.D_Y(fake)
+        loss_D_fake = self.mse(pred_fake, torch.zeros_like(pred_fake))
+        # Real
+        pred_real = self.D_Y(Y)
+        loss_D_real = self.mse(pred_real, torch.ones_like(pred_real))
+
+        loss_D_Y = (loss_D_fake + loss_D_real) / 2
+        return loss_D_Y
+
+    def compute_G_loss(self, X, Y, Y_fake, Y_idt = None):
+        fake = Y_fake
+        pred_fake = self.D_Y(fake)
+        loss_G_adv = self.mse(pred_fake, torch.ones_like(pred_fake))
+
+        loss_NCE = self.calculate_NCE_loss(X, Y_fake)
+        if self.hparams.lambda_y > 0:
+            loss_NCE_Y = self.calculate_NCE_loss(Y, Y_idt)
+            loss_NCE = (loss_NCE + loss_NCE_Y) * 0.5
+
+        loss_G = loss_G_adv + loss_NCE
+        return loss_G
+
+    def calculate_NCE_loss(self, src, tgt):
+        feat_q, patch_ids_q = self.G(tgt, encode_only=True)
+        feat_k, _ = self.G(src, encode_only=True, patch_ids=patch_ids_q)
+
+        feat_k_pool = self.H(feat_k)
+        feat_q_pool = self.H(feat_q)
+
+        total_nce_loss = 0.0
+        for f_q, f_k in zip(feat_q_pool, feat_k_pool):
+            loss = self.patch_nce_loss(f_q, f_k)
+            total_nce_loss += loss.mean()
+        return total_nce_loss / 5
+
+    def patch_nce_loss(self, feat_q, feat_k):
+        feat_k = feat_k.detach()
+        out = torch.mm(feat_q, feat_k.transpose(1, 0)) / 0.07
+        loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
+        return loss

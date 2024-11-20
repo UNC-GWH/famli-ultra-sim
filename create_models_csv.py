@@ -31,7 +31,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create a CSV file that has the index of structures', formatter_class=argparse.ArgumentDefaultsHelpFormatter)    
     parser.add_argument('--dir', type=str, help='Directory with nrrd files', required=True)   
     parser.add_argument('--ignore_size_info', type=str, help='Add column ignore size info', nargs="+", default=["lady"])    
-    parser.add_argument('--ignore', type=str, help='Add column ignore elements', nargs="+", default=["probe"])    
+    parser.add_argument('--ignore', type=str, help='Add column ignore elements', nargs="+", default=["probe", "subcorticals"])    
     
     args = parser.parse_args()
 

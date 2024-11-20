@@ -15,8 +15,11 @@ from monai.transforms import (
     EnsureChannelFirst,    
     Compose,      
     NormalizeIntensity,      
+    RandAffine,       
+    RandAxisFlip, 
     RandRotate,
     RandFlip,
+    RandZoom,
     RepeatChannel,
     Resize,
     ScaleIntensityRange,
@@ -39,7 +42,16 @@ from monai.transforms import (
 
 from monai import transforms as monai_transforms
 
+from torch.nn.utils.rnn import pad_sequence
 
+class EnsureNumChannels:
+    def __init__(self, num_channels: int = 3):
+        self.num_channels = num_channels
+
+    def __call__(self, x):
+        if x.shape[0] != self.num_channels:
+            x = RepeatChannel(self.num_channels)(x)
+        return x
 
 ### TRANSFORMS
 class SaltAndPepper:    
@@ -353,7 +365,8 @@ class RandomFrames:
     def __call__(self, x):
         if self.num_frames > 0:
             idx = torch.randint(x.size(0), (self.num_frames,))
-            x = x[idx]        
+            idx = torch.sort(idx).values
+            x = x[idx]
         return x
 
 class NormI:
@@ -789,6 +802,36 @@ class RealUSEvalTransformsV2:
 
     def __call__(self, inp):
         return self.eval_transform(inp)
+    
+
+class BlindSweepWTagTrainTransforms:
+    def __init__(self, height: int = 256):
+
+        # image augmentation functions
+        self.train_transform = transforms.Compose(
+            [
+                RandomFrames(num_frames=160),
+                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),
+                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0)                
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.train_transform(inp)        
+
+class BlindSweepWTagEvalTransforms:
+    def __init__(self, height: int = 256):
+
+        self.eval_transform = transforms.Compose(
+            [
+                RandomFrames(num_frames=160),
+                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),                
+                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0)
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.eval_transform(inp)
 
 
 
@@ -939,6 +982,38 @@ class LotusEvalTransforms:
 
     def __call__(self, inp):
         return self.eval_transform(inp)
+    
+class VolumeSlicingTrainTransforms:
+    def __init__(self, height: int = 256):
+
+        # image augmentation functions
+        self.train_transform = Compose(
+            [   
+                RandRotate(range_x=math.pi, mode='nearest', prob=1.0, padding_mode='zeros'),
+                RandAffine(prob=0.5, shear_range=(0.1, 0.1), mode='nearest', padding_mode='zeros'),
+                RandAxisFlip(prob=0.5),
+                RandZoom(min_zoom=0.5, max_zoom=1.25, mode='nearest', prob=0.5, padding_mode='constant')
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.train_transform(inp)  
+    
+class LotusEvalTransforms:
+    def __init__(self, height: int = 256):
+
+        # image augmentation functions
+        self.eval_transform = Compose(
+            [   
+                EnsureChannelFirstd(keys=['img', 'seg'], channel_dim=-1),
+                Resized(keys=['img', 'seg'], spatial_size=(height, height), mode=['bilinear', 'nearest']),
+                ToTensord(keys=['img', 'seg']),
+                ScaleIntensityRanged(keys=['img'], a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.eval_transform(inp)
 
 class LotusEvalTransformsRandom:
     def __init__(self, height: int = 256):
@@ -956,5 +1031,116 @@ class LotusEvalTransformsRandom:
             ]
         )
 
+
+class DinoUSEvalTransforms:
+    def __init__(self, height: int = 224):
+
+        self.eval_transform = transforms.Compose(
+            [
+                transforms.Resize(height),
+                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
+                EnsureNumChannels(3),
+                transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ]
+        )
+
     def __call__(self, inp):
-        return self.eval_transform(inp)  
+        return self.eval_transform(inp)
+    
+class ToVF:
+    def __init__(self, keys, threshold=0.0, threshold_key=None, use_v=False, key_v=None):
+        self.keys = keys
+        self.threshold = threshold
+        self.threshold_key = threshold_key
+        self.use_v = use_v
+        self.key_v = key_v
+    def __call__(self, x):
+
+        threshold_loc = None
+        if self.threshold_key is not None:
+            threshold_loc = x[self.threshold_key].reshape(-1) > self.threshold
+
+        for key in self.keys:
+            x[key] = self.get_grid_VF(x[key], threshold_loc, use_v=(self.use_v and key == self.key_v))
+        return x
+    
+    def compute_grid(self, X):
+        c, d, h, w = X.shape
+
+        mesh_grid_params = [torch.arange(end=s, device=X.device) for s in (d, h, w)]
+        mesh_grid_idx = torch.stack(torch.meshgrid(mesh_grid_params), dim=-1).squeeze().to(torch.float32)
+        
+        return mesh_grid_idx
+
+    def get_grid_VF(self, x, threshold_loc=None, use_v=False):
+
+        V = self.compute_grid(x)
+        V = V.reshape(-1, 3)
+
+        x = x.reshape(-1, 1)
+        
+        if threshold_loc is None:
+            threshold_loc = torch.ones_like(x.squeeze(1)).to(torch.bool)
+            
+        V_filtered = V[threshold_loc]
+        F_filtered = x[threshold_loc]
+
+        if use_v:
+            F_filtered = torch.cat([F_filtered, V_filtered], dim=-1)
+
+        return V_filtered, F_filtered
+    
+class SampleVF:
+    def __init__(self, keys, num_samples=250000):
+        self.keys = keys
+        self.num_samples = num_samples
+    def __call__(self, x):
+        V_, F_ = x[self.keys[0]]
+        
+        min_samples = min(self.num_samples, V_.shape[0])
+        idx = torch.randperm(V_.shape[0])[:min_samples]
+        idx = torch.sort(idx).values
+
+        for key in self.keys:
+            V, F = x[key]
+            x[key] = (V[idx], F[idx])
+
+        return x
+    
+class FluidTrainTransforms:
+    def __init__(self):
+
+        # image augmentation functions
+        self.train_transform = Compose(
+            [   
+                ToTensord(keys=['img', 'seg']),
+                EnsureChannelFirstd(keys=['img', 'seg'], channel_dim='no_channel'),
+                ScaleIntensityRanged(keys=['img'], a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),                
+                # RandRotated(keys=['img', 'seg'], range_x=math.pi, mode=['bilinear', 'nearest'], prob=1.0, padding_mode='zeros'),
+                RandAffined(keys=['img', 'seg'], prob=0.8, shear_range=(0.1, 0.1), mode=['bilinear', 'nearest'], padding_mode='zeros'),
+                RandAxisFlipd(keys=['img', 'seg'], prob=0.5),
+                RandZoomd(keys=['img', 'seg'], min_zoom=0.8, max_zoom=1.1, mode=['area', 'nearest'], prob=0.5, padding_mode='constant'),
+                ToVF(keys=['img', 'seg'], use_v=True, key_v='img'), 
+                # SampleVF(keys=['img', 'seg'], num_samples=500000)
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.train_transform(inp)  
+    
+class FluidEvalTransforms:
+    def __init__(self):
+
+        # image augmentation functions
+        self.eval_transform = Compose(
+            [   
+                ToTensord(keys=['img', 'seg']),
+                EnsureChannelFirstd(keys=['img', 'seg'], channel_dim='no_channel'),
+                ScaleIntensityRanged(keys=['img'], a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
+                ToVF(keys=['img', 'seg'], use_v=True, key_v='img'),
+                # SampleVF(keys=['img', 'seg'], num_samples=500000)
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.eval_transform(inp)

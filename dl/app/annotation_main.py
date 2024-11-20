@@ -377,7 +377,7 @@ with SinglePageWithDrawerLayout(server) as layout:
 
 
 def main():
-    multiprocessing.freeze_support()    
+    multiprocessing.freeze_support()
 
     if os.path.exists(Path.home() / ".qc_app_config.json"):
         config = json.load(open(Path.home() / ".qc_app_config.json"))

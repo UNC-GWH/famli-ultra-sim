@@ -756,3 +756,15 @@ class MergedLinearLabel11(nn.Module):
         X = self.inverse_transform_us(X)
         
         return X*mask_fan
+
+class MergedLinearLabel11WOG(MergedLinearLabel11):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+        X = self.USR(X, grid, inverse_grid, mask_fan)
+
+        if mask_fan is None:
+            mask_fan = self.USR.mask_fan
+            
+        return X*mask_fan

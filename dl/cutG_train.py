@@ -9,19 +9,21 @@ import torch
 from torch.distributed import is_initialized, get_rank
 
 from loaders.ultrasound_dataset import LotusDataModule, USDataModuleV2
-from loaders.mr_us_dataset import VolumeSlicingProbeParamsDataset, ConcatDataModule
+from loaders.ultrasound_dataset import VolumeSlicingProbeParamsDataset, ConcatDataModule
 from transforms.ultrasound_transforms import RealUSTrainTransforms, RealUSEvalTransforms, RealUSTrainTransformsV2, RealUSEvalTransformsV2
 # from callbacks.logger import ImageLoggerLotusNeptune
 
 from nets import lotus, cut, diffusion
 from callbacks import logger
 
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.strategies.ddp import DDPStrategy
+from lightning import Trainer
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.callbacks import ModelCheckpoint
+# from pytorch_lightning.strategies.ddp import DDPStrategy
+from lightning.pytorch.strategies import DDPStrategy
 
-from pytorch_lightning.loggers import NeptuneLogger
+from lightning.pytorch.loggers import NeptuneLogger
+
 # from pytorch_lightning.plugins import MixedPrecisionPlugin
 
 import pickle
@@ -59,8 +61,10 @@ def main(args):
     NN = getattr(cut, args.nn)    
     model = NN(**vars(args))
 
-    train_transform = RealUSTrainTransforms()
-    valid_transform = RealUSEvalTransforms()
+    # train_transform = RealUSTrainTransforms()
+    # valid_transform = RealUSEvalTransforms()
+    train_transform = RealUSTrainTransformsV2()
+    valid_transform = RealUSEvalTransformsV2()
     dsA_data = USDataModuleV2(df_train, df_val, df_test, batch_size=args.batch_size, num_workers=args.num_workers, img_column=args.img_column, drop_last=True, train_transform=train_transform, valid_transform=valid_transform)
 
     dsA_data.setup()
@@ -75,8 +79,10 @@ def main(args):
     # quit()
 
 
-    train_transform_b = RealUSTrainTransformsV2()
-    valid_transform_b = RealUSEvalTransformsV2()
+    # train_transform_b = RealUSTrainTransformsV2()
+    # valid_transform_b = RealUSEvalTransformsV2()
+    train_transform_b = RealUSTrainTransforms()
+    valid_transform_b = RealUSEvalTransforms()
     dsB_data = USDataModuleV2(df_train_b, df_val_b, df_test_b, batch_size=args.batch_size, num_workers=args.num_workers, img_column=args.img_column, drop_last=True, train_transform=train_transform_b, valid_transform=valid_transform_b)
     dsB_data.setup()
 

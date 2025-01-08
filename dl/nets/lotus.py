@@ -690,7 +690,7 @@ class UltrasoundRenderingLinear(LightningModule):
         variance_diffusor = self.variance_diffusor_dict[x]
         
         x = mean_diffusor + torch.randn(x.shape, device=x.device) * variance_diffusor
-
+        
         return x*mask_fan
     
     

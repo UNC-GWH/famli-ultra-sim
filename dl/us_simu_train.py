@@ -8,8 +8,7 @@ import numpy as np
 import torch
 from torch.distributed import is_initialized, get_rank
 
-from loaders.mr_us_dataset import DiffusorSampleSurfDataModule, DiffusorSampleDataModule
-from transforms.mr_transforms import VolumeTrainTransforms, VolumeEvalTransforms
+from loaders import ultrasound_dataset
 # from callbacks.logger import ImageLoggerLotusNeptune
 
 from nets import us_simu
@@ -32,20 +31,13 @@ import SimpleITK as sitk
 
 
 def main(args):
-    
-    if(os.path.splitext(args.csv_train)[1] == ".csv"):
-        df_train = pd.read_csv(args.csv_train)
-        df_val = pd.read_csv(args.csv_valid)
-    else:
-        df_train = pd.read_parquet(args.csv_train)
-        df_val = pd.read_parquet(args.csv_valid)
 
     NN = getattr(us_simu, args.nn)    
     model = NN(**vars(args))
 
-    train_transform = VolumeTrainTransforms()
-    valid_transform = VolumeEvalTransforms()
-    surf_data = DiffusorSampleDataModule(df_train, df_val, mount_point=args.mount_point, batch_size=args.batch_size, num_workers=4, img_column="img_path", train_transform=train_transform, valid_transform=valid_transform, drop_last=False, num_samples_train=args.num_samples_train, num_samples_val=args.num_samples_val)
+    DM = getattr(ultrasound_dataset, args.data_module)    
+
+    datamodule = DM(**vars(args))
 
     callbacks = []
 
@@ -77,7 +69,6 @@ def main(args):
         early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=0.00, patience=args.patience, verbose=True, mode="min")
         callbacks.append(early_stop_callback)
 
-    
     logger_neptune = None
 
     if args.neptune_tags:
@@ -100,38 +91,33 @@ def main(args):
         callbacks=callbacks,
         accelerator='gpu', 
         devices=torch.cuda.device_count(),
-        strategy=DDPStrategy(find_unused_parameters=True),
+        # strategy=DDPStrategy(find_unused_parameters=True),
+        strategy=DDPStrategy(),
     )
     
-    trainer.fit(model, datamodule=surf_data, ckpt_path=args.model)
+    trainer.fit(model, datamodule=datamodule, ckpt_path=args.model)
 
 
 if __name__ == '__main__':
 
 
-    parser = argparse.ArgumentParser(description='Diffusion training')
+    parser = argparse.ArgumentParser(description='Diffusion training', add_help=False)
 
     hparams_group = parser.add_argument_group('Hyperparameters')
     hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
     hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
     hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)    
-    hparams_group.add_argument('--batch_size', help='Batch size', type=int, default=2)
 
     input_group = parser.add_argument_group('Input')
     
-    input_group.add_argument('--nn', help='Type of neural network', type=str, default="USAEReconstruction")        
-    input_group.add_argument('--model', help='Model to continue training', type=str, default= None)
-    input_group.add_argument('--mount_point', help='Dataset mount directory', type=str, default="./")    
-    input_group.add_argument('--num_workers', help='Number of workers for loading', type=int, default=4)
-    input_group.add_argument('--csv_train', required=True, type=str, help='Train CSV')
-    input_group.add_argument('--csv_valid', required=True, type=str, help='Valid CSV')
-    input_group.add_argument('--img_column', type=str, default='img_path', help='Column name for image')  
-    input_group.add_argument('--num_samples_train', type=int, default=1000, help='Number of samples for training')  
-    input_group.add_argument('--num_samples_val', type=int, default=10, help='Number of samples for validation')  
+    input_group.add_argument('--nn', help='Type of neural network', type=str, required=True)        
+    input_group.add_argument('--model', help='Model to continue training', type=str, default= None)    
+
+    input_group.add_argument('--data_module', help='Type of data module to use', type=str, required=True)            
     
     output_group = parser.add_argument_group('Output')
     output_group.add_argument('--out', help='Output directory', type=str, default="./")
-    output_group.add_argument('--use_early_stopping', help='Use early stopping criteria', type=int, default=0)
+    output_group.add_argument('--use_early_stopping', help='Use early stopping criteria', type=int, default=1)
     output_group.add_argument('--monitor', help='Additional metric to monitor to save checkpoints', type=str, default=None)
     
     log_group = parser.add_argument_group('Logging')
@@ -144,6 +130,10 @@ if __name__ == '__main__':
     NN = getattr(us_simu, args.nn)    
     NN.add_model_specific_args(parser)
 
+    data_module = getattr(ultrasound_dataset, args.data_module)
+    parser = data_module.add_data_specific_args(parser)
+
+    parser = argparse.ArgumentParser(parents=[parser])
     args = parser.parse_args()
 
     main(args)

@@ -88,13 +88,14 @@ if __name__ == "__main__":
 
     parser.add_argument('--dir', type=str, help='Input dir with stl files', required=True)
     parser.add_argument('--dimensions', type=int, help='Output dimension', nargs='+', default=[256, 256, 256])
+    parser.add_argument('--ow', type=int, help='Overwrite', default=0)
     # parser.add_argument('--max_size', type=float, help='Max output size', default=512)
     args = parser.parse_args()
     
     # "/mnt/famli_netapp_shared/C1_ML_Analysis/src/blender/Pregnant_Fetus_Uterus_Blend_2-82/stl_export/arms"
     input_dir = args.dir
     mesh_fn = []
-    for file in Path(input_dir).rglob('*.stl'):
+    for file in Path(input_dir).rglob('*.stl') or args.ow:
         
         input_mesh_filename = str(file)   
 

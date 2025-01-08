@@ -745,15 +745,16 @@ class MergedLinearLabel11(nn.Module):
     def morphology_close(self, x, kernel_size=3):
         return self.erode(self.dilate(x, kernel_size), kernel_size)
 
-    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None, use_g=True):
         X = self.USR(X, grid, inverse_grid, mask_fan)
 
         if mask_fan is None:
             mask_fan = self.USR.mask_fan
         
-        X = self.transform_us(X)        
-        X = self.G(X)
-        X = self.inverse_transform_us(X)
+        if use_g:
+            X = self.transform_us(X)        
+            X = self.G(X)
+            X = self.inverse_transform_us(X)
         
         return X*mask_fan
 

@@ -1947,3 +1947,140 @@ class USGAPCLoggerNeptune(Callback):
             }]
         )
         return fig
+
+
+class USDDPMPCLoggerNeptune(Callback):
+    # This callback logs images for visualization during training, with the ability to log images to the Neptune logging system for easy monitoring and analysis
+    def __init__(self, num_surf=5, log_steps=10, num_steps=5):
+        self.log_steps = log_steps
+        self.num_surf = num_surf
+        self.num_steps = num_steps
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx): 
+        # This function is called at the end of each training batch
+        if pl_module.global_step % self.log_steps == 0:
+            
+            pl_module.eval()
+            with torch.no_grad():
+
+                X, X_origin, X_end, X_PC = batch
+                X = X[0:1]
+                X_origin = X_origin[0:1] 
+                X_end = X_end[0:1]
+                X_PC = X_PC[0:1]
+
+                x_sweeps, sweeps_tags = pl_module.volume_sampling(X, X_origin, X_end)
+
+                # x_sweeps shape is B, N, C, T, H, W. N for number of sweeps ex. torch.Size([2, 2, 1, 200, 256, 256]) 
+                # tags shape torch.Size([2, 2])
+
+                batch_size = x_sweeps.shape[0]
+                Nsweeps = x_sweeps.shape[1] # Number of sweeps -> T
+                
+                z = []
+                x_v = []
+
+                for n in range(Nsweeps):
+                    x_sweeps_n = x_sweeps[:, n, :, :, :, :] # [BS, C, T, H, W]
+                    sweeps_tags_n = sweeps_tags[:, n]
+
+                    z_mu, z_sigma = pl_module.encode(x_sweeps_n)
+                    z_ = z_mu
+
+                    z_ = pl_module.attn_chunk(z_) # [BS, self.hparams.latent_channels, self.hparams.n_chunks, 64. 64]
+
+                    z_ = z_.permute(0, 2, 3, 4, 1).reshape(batch_size, pl_module.hparams.n_chunks, -1) # [BS, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+
+                    z.append(z_.unsqueeze(1))
+
+                z = torch.cat(z, dim=1) # [BS, N, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+
+                z = pl_module.proj(z) # [BS, N, elf.hparams.n_chunks, 1280]
+
+                # We don't need to do the trick of using the buffer for the positional encoding here, ALL the sweeps are present in validation
+                z = pl_module.p_encoding(z)
+                z = z.view(batch_size, -1, pl_module.hparams.embed_dim).contiguous()
+
+                
+                fig = self.plot_diffusion(X_PC[0:self.num_surf].cpu().numpy())
+                trainer.logger.experiment["images/batch"].upload(fig)
+                
+                pc, intermediates = pl_module.sample(intermediate_steps=self.num_steps, z=z)
+                
+                fig = self.plot_diffusion(torch.cat(intermediates, dim=0).cpu().numpy())
+                trainer.logger.experiment["images/intermediates"].upload(fig)
+
+                
+
+    def plot_diffusion(self, X):
+        num_surf = len(X)
+        specs_r = [{'type': 'scatter3d'} for _ in range(num_surf)]
+
+        fig = make_subplots(
+            rows=1, cols=num_surf,
+            specs=[specs_r]
+        )
+
+        for idx, x in zip(range(num_surf), X):
+            # First scatter plot
+            fig.add_trace(
+                go.Scatter3d(x=x[:,0], y=x[:,1], z=x[:,2], mode='markers', marker=dict(
+                    size=2,
+                    color=x[:,2],                # set color to an array/list of desired values
+                    colorscale='Viridis',   # choose a colorscale
+                    opacity=0.8
+                )),
+                row=1, col=idx+1
+            )
+
+        return fig
+
+
+    def plot_pointclouds(self, X, X_noised, X_hat):
+
+        num_surf = len(X)
+        specs_r = [{'type': 'scatter3d'} for _ in range(num_surf)]
+
+        fig = make_subplots(
+            rows=3, cols=num_surf,
+            specs=[specs_r, specs_r, specs_r]
+        )
+
+        for idx, x, x_noised, x_hat in zip(range(num_surf), X, X_noised, X_hat):
+            # First scatter plot
+            fig.add_trace(
+                go.Scatter3d(x=x[:,0], y=x[:,1], z=x[:,2], mode='markers', marker=dict(
+                    size=2,
+                    color=x[:,2],                # set color to an array/list of desired values
+                    colorscale='Viridis',   # choose a colorscale
+                    opacity=0.8
+                )),
+                row=1, col=idx+1
+            )
+
+            # Second scatter plot
+            fig.add_trace(
+                go.Scatter3d(x=x_noised[:,0], y=x_noised[:,1], z=x_noised[:,2], mode='markers', marker=dict(
+                    size=2,
+                    color=x_noised[:,2],                # set color to an array/list of desired values
+                    colorscale='Viridis',   # choose a colorscale
+                    opacity=0.8
+                )),
+                row=2, col=idx+1
+            )
+
+            # Third scatter plot
+            fig.add_trace(
+                go.Scatter3d(x=x_hat[:,0], y=x_hat[:,1], z=x_hat[:,2], mode='markers', marker=dict(
+                    size=2,
+                    color=x_hat[:,2],                # set color to an array/list of desired values
+                    colorscale='Viridis',   # choose a colorscale
+                    opacity=0.8
+                )),
+                row=3, col=idx+1
+            )
+
+        # Update the layout if necessary
+        fig.update_layout(height=900, width=1600, title_text="Side-by-Side 3D Scatter Plots")
+
+        return fig

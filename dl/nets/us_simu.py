@@ -441,6 +441,7 @@ class VolumeSamplingBlindSweep(nn.Module):
                     ss_chunk = []
                     for ss_ch in torch.chunk(ss, chunks=20, dim=1):
                         simulated = simulator(ss_ch.unsqueeze(dim=1), grid=grid, inverse_grid=inverse_grid, mask_fan=mask_fan)
+                        simulated = simulator.module.transform_us(simulated)
                         ss_chunk.append(simulated)
                     sampled_sweep_simu.append(torch.cat(ss_chunk, dim=2))
 
@@ -496,6 +497,14 @@ class USDDPMPC(LightningModule):
                                              beta_schedule="linear",
                                              clip_sample=False,
                                              prediction_type='epsilon')
+
+        self.simu0 = TimeDistributed(us_simulation_jit.MergedLinearCutLabel11(), time_dim=2)
+        self.simu1 = TimeDistributed(us_simulation_jit.MergedCutLabel11(), time_dim=2)
+        self.simu2 = TimeDistributed(us_simulation_jit.MergedUSRLabel11(), time_dim=2)
+        self.simu3 = TimeDistributed(us_simulation_jit.MergedLinearLabel11(), time_dim=2)
+        self.simu4 = TimeDistributed(us_simulation_jit.MergedLinearLabel11WOG(), time_dim=2)
+
+        
     
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -545,17 +554,8 @@ class USDDPMPC(LightningModule):
                                 lr=self.hparams.lr,
                                 weight_decay=self.hparams.weight_decay)
         return optimizer
-        
 
-    def on_fit_start(self):
-
-        simu0 = TimeDistributed(us_simulation_jit.MergedLinearCutLabel11().eval().cuda(), time_dim=2)
-        simu1 = TimeDistributed(us_simulation_jit.MergedCutLabel11().eval().cuda(), time_dim=2)
-        simu2 = TimeDistributed(us_simulation_jit.MergedUSRLabel11().eval().cuda(), time_dim=2)
-        simu3 = TimeDistributed(us_simulation_jit.MergedLinearLabel11().eval().cuda(), time_dim=2)
-        simu4 = TimeDistributed(us_simulation_jit.MergedLinearLabel11WOG().eval().cuda(), time_dim=2)
-
-        self.us_simulators = [simu0, simu1, simu2, simu3, simu4]
+    def on_fit_start(self):        
 
         # Define the file names directly without using out_dir
         grid_t_file = 'grid_t.pt'
@@ -618,7 +618,7 @@ class USDDPMPC(LightningModule):
 
     def volume_sampling(self, X, X_origin, X_end, use_random=False):
         with torch.no_grad():
-            simulator = self.us_simulators[0]
+            simulator = self.simu0
             
             grid = None
             inverse_grid = None
@@ -628,7 +628,8 @@ class USDDPMPC(LightningModule):
 
             if use_random:
 
-                simulator = np.random.choice(self.us_simulators)
+                simulator_idx = np.random.choice([0, 1, 2, 3, 4])
+                simulator = getattr(self, f'simu{simulator_idx}')
 
                 tags = np.random.choice(self.vs.tags, self.hparams.num_random_sweeps)
 
@@ -814,7 +815,7 @@ class USDDPMPC(LightningModule):
         else:
             num_diff_steps = int(self.hparams.num_train_steps/intermediate_steps)
 
-        X_t = torch.randn(num_samples, self.hparams.num_samples, self.hparams.input_dim).to(self.device)
+        X_t = torch.randn(num_samples, self.hparams.num_samples, self.hparams.input_dim).to(self.device)        
 
         for i, t in enumerate(self.noise_scheduler.timesteps):
 

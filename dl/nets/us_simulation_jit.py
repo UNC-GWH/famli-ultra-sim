@@ -331,6 +331,7 @@ class MergedLinearCutLabel11(nn.Module):
         super().__init__()
 
         self.model_cut = cut.CutLinear.load_from_checkpoint("/mnt/raid/C1_ML_Analysis/train_output/ultra-sim/rendering_cut_label11_linear/v0.2/epoch=74-val_loss=3.14.ckpt", num_labels=12)
+        self.model_cut.freeze()
         self.USR = self.model_cut.USR
         self.G = self.model_cut.G
         # model_fn = "/mnt/raid/C1_ML_Analysis/train_output/diffusionAE/extract_frames_Dataset_C_masked_resampled_256_spc075_wscores_meta_BPD01_MACFL025-7mo-9mo/v0.4/epoch=72-val_loss=0.01.ckpt"
@@ -438,6 +439,7 @@ class MergedCutLabel11(nn.Module):
         super().__init__()
 
         self.model_cut = cut.CutLabel11.load_from_checkpoint("/mnt/raid/C1_ML_Analysis/train_output/ultra-sim/rendering_cut_label11/v0.1/epoch=85-val_loss=3.44.ckpt", num_labels=12)
+        self.model_cut.freeze()
 
         self.USR = self.model_cut.USR
         self.G = self.model_cut.G
@@ -546,6 +548,7 @@ class MergedUSRLabel11(nn.Module):
         super().__init__()
 
         self.model_cut = cut.CutLabel11.load_from_checkpoint("/mnt/raid/C1_ML_Analysis/train_output/ultra-sim/rendering_cut_label11/v0.1/epoch=85-val_loss=3.44.ckpt", num_labels=12)
+        self.model_cut.freeze()
 
         self.USR = self.model_cut.USR
         self.G = self.model_cut.G
@@ -654,6 +657,7 @@ class MergedLinearLabel11(nn.Module):
         super().__init__()
 
         self.model_cut = cut.CutLinear.load_from_checkpoint("/mnt/raid/C1_ML_Analysis/train_output/ultra-sim/rendering_cut_label11_linear/v0.2/epoch=74-val_loss=3.14.ckpt", num_labels=12)
+        self.model_cut.freeze()
         self.USR = self.model_cut.USR
         self.G = self.model_cut.G
         # model_fn = "/mnt/raid/C1_ML_Analysis/train_output/diffusionAE/extract_frames_Dataset_C_masked_resampled_256_spc075_wscores_meta_BPD01_MACFL025-7mo-9mo/v0.4/epoch=72-val_loss=0.01.ckpt"

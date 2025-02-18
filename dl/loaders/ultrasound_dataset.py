@@ -33,6 +33,7 @@ from torch.nn import functional as F
 sys.path.append('/mnt/raid/C1_ML_Analysis/source/ShapeAXI/src')
 
 from shapeaxi import utils
+from shapeaxi import saxi_transforms
 
 class USDataset(Dataset):
     def __init__(self, df, mount_point = "./", transform=None, img_column="img_path", class_column=None, ga_column=None, scalar_column=None, repeat_channel=True, return_head=False):
@@ -1753,10 +1754,9 @@ class ImgPCDataModule(LightningDataModule):
         super().__init__()
         self.save_hyperparameters(logger=False)
 
-        scale_factor = self.hparams.scale_factor if hasattr(self.hparams, 'scale_factor') else None     
-        self.train_transform = None
-        self.valid_transform = None
-        self.test_transform = None
+        self.train_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
+        self.valid_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
+        self.test_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
         
     @staticmethod
     def add_data_specific_args(parent_parser):
@@ -1774,7 +1774,7 @@ class ImgPCDataModule(LightningDataModule):
         group.add_argument('--np_test', type=str, required=True, help="Path to the numpy file containing the point clouds")
         group.add_argument('--batch_size', type=int, default=4, help="Batch size for the train dataloaders")
         group.add_argument('--num_workers', type=int, default=1)
-        # group.add_argument('--rescale_factor', type=float, default=1.0)
+        group.add_argument('--rescale_factor', type=float, default=1.0)
 
         return parent_parser
         
@@ -1783,7 +1783,7 @@ class ImgPCDataModule(LightningDataModule):
         # Assign train/val datasets for use in dataloaders
         self.train_dataset = ImgPCDataset(self.hparams.csv_train, self.hparams.np_train, mount_point=self.hparams.mount_point, num_samples=self.hparams.num_samples_train, transform=self.train_transform)
         self.val_dataset = ImgPCDataset(self.hparams.csv_valid, self.hparams.np_valid, mount_point=self.hparams.mount_point, transform=self.valid_transform)
-        self.test_dataset = ImgPCDataset(self.hparams.csv_test, self.hparams.np_test, mount_point=self.hparams.mount_point, transform=self.valid_transform)
+        self.test_dataset = ImgPCDataset(self.hparams.csv_test, self.hparams.np_test, mount_point=self.hparams.mount_point, transform=self.test_transform)
 
     def train_dataloader(self):  
         return DataLoader(self.train_dataset,batch_size=self.hparams.batch_size, shuffle=True, num_workers=self.hparams.num_workers, pin_memory=True)

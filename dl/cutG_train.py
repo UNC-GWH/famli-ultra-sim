@@ -177,7 +177,7 @@ if __name__ == '__main__':
     log_group = parser.add_argument_group('Logging')
     log_group.add_argument('--neptune_tags', help='Neptune tags', type=str, nargs="+", default=None)
     log_group.add_argument('--logger', help='Neptune tags', type=str, nargs="+", default="CutGLogger")
-    log_group.add_argument('--log_steps', help='Log every N steps', type=int, default=100)
+    log_group.add_argument('--log_steps', help='Log every N steps', type=int, default=10)
 
     args = parser.parse_args()
 

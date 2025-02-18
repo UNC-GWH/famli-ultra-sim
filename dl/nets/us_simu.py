@@ -525,7 +525,7 @@ class USDDPMPC(LightningModule):
         group.add_argument("--norm_num_groups", type=int, default=32, help='Number of groups for the normalization layer')
         group.add_argument("--n_chunks_e", type=int, default=10, help='Number of chunks in the encoder stage to reduce memory usage')
         group.add_argument("--n_chunks", type=int, default=8, help='Number of outputs in the time dimension')
-        
+        group.add_argument("--z_prob", type=float, default=0.2, help='Probability of using the latent code')
         
         
         # Encoder parameters for the diffusion model
@@ -541,9 +541,9 @@ class USDDPMPC(LightningModule):
         group.add_argument("--flip_sin_to_cos", type=int, default=1, help='Whether to flip sin to cos for Fourier time embedding.')
         group.add_argument("--freq_shift", type=int, default=0, help='Frequency shift for Fourier time embedding.')
 
-        group.add_argument("--num_random_sweeps", type=int, default=4, help='How many random sweeps to use')
+        group.add_argument("--num_random_sweeps", type=int, default=5, help='How many random sweeps to use')
         group.add_argument("--n_grids", type=int, default=200, help='Number of grids')
-        group.add_argument("--target_label", type=int, default=7, help='Target label')
+        # group.add_argument("--target_label", type=int, default=7, help='Target label')
 
         # group.add_argument("--n_fixed_samples", type=int, default=12288, help='Number of fixed samples')
 
@@ -628,7 +628,7 @@ class USDDPMPC(LightningModule):
 
             if use_random:
 
-                simulator_idx = np.random.choice([0, 1, 2, 3, 4])
+                simulator_idx = np.random.choice([0, 1, 2, 3, 4], replace=False)
                 simulator = getattr(self, f'simu{simulator_idx}')
 
                 tags = np.random.choice(self.vs.tags, self.hparams.num_random_sweeps)
@@ -678,38 +678,42 @@ class USDDPMPC(LightningModule):
 
         X, rotation_matrices = self.vs.random_rotate_3d_batch(X)
 
-        x_sweeps, sweeps_tags = self.volume_sampling(X, X_origin, X_end, use_random=True)
+        batch_size = X.shape[0]
 
-        # x_sweeps shape is B, N, C, T, H, W. N for number of sweeps ex. torch.Size([2, 2, 1, 200, 256, 256]) 
-        # tags shape torch.Size([2, 2])
-
-        batch_size = x_sweeps.shape[0]
-        Nsweeps = x_sweeps.shape[1] # Number of sweeps -> T
-        
-        z = []
-        x_v = []
-
-        for n in range(Nsweeps):
-            x_sweeps_n = x_sweeps[:, n, :, :, :, :] # [BS, C, T, H, W]
-            sweeps_tags_n = sweeps_tags[:, n]
+        if self.hparams.z_prob < torch.rand(1).item():
             
-            z_mu, z_sigma = self.encode(x_sweeps_n)            
-            z_ = self.sampling(z_mu, z_sigma) 
 
-            z_ = self.attn_chunk(z_) # [BS, self.hparams.latent_channels, self.hparams.n_chunks, 64. 64]
+            x_sweeps, sweeps_tags = self.volume_sampling(X, X_origin, X_end, use_random=True)
 
-            z_ = z_.permute(0, 2, 3, 4, 1).reshape(batch_size, self.hparams.n_chunks, -1) # [BS, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+            # x_sweeps shape is B, N, C, T, H, W. N for number of sweeps ex. torch.Size([2, 2, 1, 200, 256, 256]) 
+            # tags shape torch.Size([2, 2])
+            Nsweeps = x_sweeps.shape[1] # Number of sweeps -> T
+            
+            z = []
+            x_v = []
 
-            z.append(z_.unsqueeze(1))
+            for n in range(Nsweeps):
+                x_sweeps_n = x_sweeps[:, n, :, :, :, :] # [BS, C, T, H, W]
+                sweeps_tags_n = sweeps_tags[:, n]
+                
+                z_mu, z_sigma = self.encode(x_sweeps_n)            
+                z_ = self.sampling(z_mu, z_sigma) 
 
-        z = torch.cat(z, dim=1) # [BS, N, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+                z_ = self.attn_chunk(z_) # [BS, self.hparams.latent_channels, self.hparams.n_chunks, 64. 64]
 
-        z = self.proj(z) # [BS, N, elf.hparams.n_chunks, 1280]
+                z_ = z_.permute(0, 2, 3, 4, 1).reshape(batch_size, self.hparams.n_chunks, -1) # [BS, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
 
-        z = self.positional_encoding(z, sweeps_tags)
-        z = z.view(batch_size, -1, self.hparams.embed_dim).contiguous()
-        z = self.dropout(z)
+                z.append(z_.unsqueeze(1))
 
+            z = torch.cat(z, dim=1) # [BS, N, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+
+            z = self.proj(z) # [BS, N, elf.hparams.n_chunks, 1280]
+
+            z = self.positional_encoding(z, sweeps_tags)
+            z = z.view(batch_size, -1, self.hparams.embed_dim).contiguous()
+            z = self.dropout(z)
+        else:
+            z = torch.zeros(batch_size, 1, self.hparams.embed_dim, device=self.device)
 
         # Diffusion stage
 
@@ -810,18 +814,14 @@ class USDDPMPC(LightningModule):
 
     def sample(self, num_samples=1, intermediate_steps=None, z=None):
         intermediates = []
-        if intermediate_steps is None:
-            num_diff_steps = self.hparams.num_train_steps
-        else:
-            num_diff_steps = int(self.hparams.num_train_steps/intermediate_steps)
 
         X_t = torch.randn(num_samples, self.hparams.num_samples, self.hparams.input_dim).to(self.device)        
 
         for i, t in enumerate(self.noise_scheduler.timesteps):
 
             
-            x_hat = self(X_t.permute(0, 2, 1).view(-1, 3, 64, 64).contiguous(), timesteps=t, context=z)  
-            x_hat = x_hat.view(-1, 3, 64*64).permute(0, 2, 1).contiguous()
+            x_hat = self(X_t.permute(0, 2, 1).view(-1, self.hparams.input_dim, 64, 64).contiguous(), timesteps=t, context=z)  
+            x_hat = x_hat.view(-1, self.hparams.input_dim, 64*64).permute(0, 2, 1).contiguous()
 
             # Update sample with step
             X_t = self.noise_scheduler.step(model_output=x_hat, timestep=t, sample=X_t).prev_sample

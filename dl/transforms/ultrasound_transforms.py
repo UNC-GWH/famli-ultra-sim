@@ -794,7 +794,7 @@ class RealUSEvalTransformsV2:
             [
                 EnsureChannelFirst(strict_check=False, channel_dim=0),
                 FirstChannelOnly(),
-                Resize(spatial_size=(height, height), mode='bilinear'),
+                # Resize(spatial_size=(height, height), mode='bilinear'),
                 ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
                 Transpose(),
             ]

@@ -79,7 +79,7 @@ def main(args):
             log_model_checkpoints=False
         )
         LOGGER = getattr(logger, args.logger)    
-        image_logger = LOGGER(log_steps=args.log_steps)
+        image_logger = LOGGER(log_steps=args.image_log_steps)
         callbacks.append(image_logger)
 
     
@@ -91,8 +91,8 @@ def main(args):
         callbacks=callbacks,
         accelerator='gpu', 
         devices=torch.cuda.device_count(),
-        # strategy=DDPStrategy(find_unused_parameters=True),
-        strategy=DDPStrategy(),
+        strategy=DDPStrategy(find_unused_parameters=True),
+        # strategy=DDPStrategy(),
     )
     
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.model)
@@ -124,6 +124,7 @@ if __name__ == '__main__':
     log_group.add_argument('--neptune_tags', help='Neptune tags', type=str, nargs="+", default=None)
     log_group.add_argument('--logger', help='Neptune tags', type=str, default="USAEReconstructionNeptuneLogger")
     log_group.add_argument('--log_steps', help='Log every N steps', type=int, default=5)
+    log_group.add_argument('--image_log_steps', help='Log images every N steps', type=int, default=50)
 
     args, unknownargs = parser.parse_known_args()
 

@@ -89,3 +89,173 @@ class ScoreLayer(nn.Module):
         score = self.Sigmoid(self.V(self.Tanh(self.W1(query))))
         return score
     
+
+class ResnetBlock(nn.Module):
+    def __init__(self, features, conv3d=False):
+        super().__init__()
+        self.features = features
+        layers = []
+        for i in range(2):
+            layers += [
+                nn.ReflectionPad2d(1) if not conv3d else nn.ReflectionPad3d(1),
+                nn.Conv2d(features, features, kernel_size=3) if not conv3d else nn.Conv3d(features, features, kernel_size=3),
+                nn.InstanceNorm2d(features) if not conv3d else nn.InstanceNorm3d(features),
+            ]
+            if i==0:
+                layers += [
+                    nn.ReLU(True)
+                ]
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, input):
+        return input + self.model(input)
+    
+class Downsample(nn.Module):
+    def __init__(self, features, conv3d=False):
+        super().__init__()
+        layers = [
+            nn.ReflectionPad2d(1) if not conv3d else nn.ReflectionPad3d(1),
+            nn.Conv2d(features, features, kernel_size=3, stride=2) if not conv3d else nn.Conv3d(features, features, kernel_size=3, stride=2),
+        ]
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, input):
+        return self.model(input)
+    
+class Upsample(nn.Module):
+    def __init__(self, features, conv3d=False):
+        super().__init__()
+        layers = [
+            nn.ReplicationPad2d(1) if not conv3d else nn.ReplicationPad3d(1),
+            nn.ConvTranspose2d(features, features, kernel_size=4, stride=2, padding=3) if not conv3d else nn.ConvTranspose3d(features, features, kernel_size=4, stride=2, padding=3),
+        ]
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, input):
+        return self.model(input)
+
+class Head(nn.Module):
+    def __init__(self, in_channels=1, features=64, residuals=9):
+        super().__init__()
+
+        mlp = nn.Sequential(*[
+            nn.Linear(in_channels, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256)
+        ])
+        mlp_id = 0
+        setattr(self, 'mlp_%d' % mlp_id, mlp)
+        mlp = nn.Sequential(*[
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256)
+        ])
+        mlp_id = 1
+        setattr(self, 'mlp_%d' % mlp_id, mlp)
+        for mlp_id in range(2, 5):
+            mlp = nn.Sequential(*[
+                nn.Linear(256, 256),
+                nn.ReLU(),
+                nn.Linear(256, 256)
+            ])
+            setattr(self, 'mlp_%d' % mlp_id, mlp)
+
+    def forward(self, feats):
+        # if not encode_only:
+        #     return(self.model(input))
+        # else:
+        #     num_patches = 256
+        #     return_ids = []
+        return_feats = []
+        #     feat = input
+        #     mlp_id = 0
+        for feat_id, feat in enumerate(feats):
+            mlp = getattr(self, 'mlp_%d' % feat_id)
+            feat = mlp(feat)
+            norm = feat.pow(2).sum(1, keepdim=True).pow(1. / 2)
+            feat = feat.div(norm + 1e-7)
+            return_feats.append(feat)
+        return return_feats
+
+
+class MLPHeads(nn.Module):
+    def __init__(self, features=[64, 128, 256, 256, 256]):
+        super().__init__()
+
+        for mlp_id, feature in enumerate(features):
+            
+            mlp = nn.Sequential(*[
+                nn.Linear(feature, 256),
+                nn.ReLU(),
+                nn.Linear(256, 256)
+            ])
+
+            setattr(self, 'mlp_%d' % mlp_id, mlp)
+        
+    def forward(self, feats):
+        
+        return_feats = []
+        
+        for feat_id, feat in enumerate(feats):
+            mlp = getattr(self, 'mlp_%d' % feat_id)
+            feat = mlp(feat)
+            norm = feat.pow(2).sum(1, keepdim=True).pow(1. / 2)
+            feat = feat.div(norm + 1e-7)
+            return_feats.append(feat)
+        return return_feats
+
+class ConditionalInstanceNorm2d(nn.Module):
+    def __init__(self, num_features, num_classes):
+        super().__init__()
+        self.instance_norm = nn.InstanceNorm2d(num_features, affine=False)
+        self.gamma_embed = nn.Embedding(num_classes, num_features)
+        self.beta_embed = nn.Embedding(num_classes, num_features)
+        # Initialize scale close to 1 and bias as 0.
+        nn.init.constant_(self.gamma_embed.weight, 1)
+        nn.init.constant_(self.beta_embed.weight, 0)
+    
+    def forward(self, x, labels):
+        out = self.instance_norm(x)
+        gamma = self.gamma_embed(labels).unsqueeze(2).unsqueeze(3)
+        beta = self.beta_embed(labels).unsqueeze(2).unsqueeze(3)
+        return gamma * out + beta
+
+class FiLM(nn.Module):
+    def __init__(self, in_features, num_classes):
+        super().__init__()
+        self.features = in_features
+        self.num_classes = num_classes
+        self.film_gen = nn.Linear(num_classes, in_features * 2)  # Produces [gamma, beta]
+    
+    def forward(self, x, labels):
+        labels = F.one_hot(labels, num_classes=self.num_classes).float()
+        film_params = self.film_gen(labels)
+        gamma, beta = film_params.chunk(2, dim=1)
+        gamma = gamma.unsqueeze(2).unsqueeze(3)
+        beta = beta.unsqueeze(2).unsqueeze(3)
+        return gamma * x + beta
+
+class ConditionalResnetBlock(nn.Module):
+    def __init__(self, features, num_classes):
+        super().__init__()
+        layers = []
+        self.features = features
+        for i in range(2):
+            layers += [
+                nn.ReflectionPad2d(1),
+                nn.Conv2d(features, features, kernel_size=3),
+                ConditionalInstanceNorm2d(features, num_classes)  
+            ]
+            if i==0:
+                layers += [
+                    nn.ReLU(True)
+                ]
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, input, labels):
+        for layer in self.model:
+            if hasattr(layer, 'forward') and 'labels' in layer.forward.__code__.co_varnames[:layer.forward.__code__.co_argcount]:
+                input = layer(input, labels)
+            else:
+                input = layer(input)
+        return input

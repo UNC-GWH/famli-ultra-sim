@@ -47,12 +47,6 @@ from monai.transforms import (
     RandZoom,
 )
 
-from pytorch3d.loss import (
-    chamfer_distance,
-    point_mesh_edge_distance, 
-    point_mesh_face_distance,
-)
-
 from pytorch3d.structures import (
     Meshes,
     Pointclouds)
@@ -525,7 +519,7 @@ class USDDPMPC(LightningModule):
         group.add_argument("--norm_num_groups", type=int, default=32, help='Number of groups for the normalization layer')
         group.add_argument("--n_chunks_e", type=int, default=10, help='Number of chunks in the encoder stage to reduce memory usage')
         group.add_argument("--n_chunks", type=int, default=8, help='Number of outputs in the time dimension')
-        group.add_argument("--z_prob", type=float, default=0.2, help='Probability of using the latent code')
+        group.add_argument("--z_prob", type=float, default=0.2, help='Probability of dropping the latent code')
         
         
         # Encoder parameters for the diffusion model
@@ -541,7 +535,7 @@ class USDDPMPC(LightningModule):
         group.add_argument("--flip_sin_to_cos", type=int, default=1, help='Whether to flip sin to cos for Fourier time embedding.')
         group.add_argument("--freq_shift", type=int, default=0, help='Frequency shift for Fourier time embedding.')
 
-        group.add_argument("--num_random_sweeps", type=int, default=5, help='How many random sweeps to use')
+        group.add_argument("--num_random_sweeps", type=int, default=0, help='How many random sweeps to use. 0 == all')
         group.add_argument("--n_grids", type=int, default=200, help='Number of grids')
         # group.add_argument("--target_label", type=int, default=7, help='Target label')
 
@@ -631,7 +625,10 @@ class USDDPMPC(LightningModule):
                 simulator_idx = np.random.choice([0, 1, 2, 3, 4], replace=False)
                 simulator = getattr(self, f'simu{simulator_idx}')
 
-                tags = np.random.choice(self.vs.tags, self.hparams.num_random_sweeps)
+                if self.hparams.num_random_sweeps > 0:
+                    tags = np.random.choice(self.vs.tags, self.hparams.num_random_sweeps)
+                else:
+                    tags = self.vs.tags
 
                 grid_idx = torch.randint(low=0, high=self.hparams.n_grids - 1, size=(1,))
             
@@ -680,7 +677,9 @@ class USDDPMPC(LightningModule):
 
         batch_size = X.shape[0]
 
-        if self.hparams.z_prob < torch.rand(1).item():
+        if  torch.rand(1).item() < self.hparams.z_prob:
+            z = torch.zeros(batch_size, 1, self.hparams.embed_dim, device=self.device)
+        else:
             
 
             x_sweeps, sweeps_tags = self.volume_sampling(X, X_origin, X_end, use_random=True)
@@ -707,13 +706,11 @@ class USDDPMPC(LightningModule):
 
             z = torch.cat(z, dim=1) # [BS, N, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
 
-            z = self.proj(z) # [BS, N, elf.hparams.n_chunks, 1280]
+            z = self.proj(z) # [BS, N, self.hparams.n_chunks, 1280]
 
             z = self.positional_encoding(z, sweeps_tags)
             z = z.view(batch_size, -1, self.hparams.embed_dim).contiguous()
             z = self.dropout(z)
-        else:
-            z = torch.zeros(batch_size, 1, self.hparams.embed_dim, device=self.device)
 
         # Diffusion stage
 
@@ -830,6 +827,59 @@ class USDDPMPC(LightningModule):
                 intermediates.append(X_t)
 
         return X_t, intermediates
+
+    def sample_guided(self, num_samples=1, guidance_scale=7.5, intermediate_steps=None, z=None):
+        intermediates = []
+
+        # Initialize random noise
+        device = self.device
+        x_t = torch.randn(num_samples, 64*64, self.hparams.input_dim, device=device)
+
+        for t in reversed(range(self.hparams.num_train_steps)):
+            
+            # Conditional prediction (with context)
+            x_cond = self(
+                x_t.permute(0, 2, 1).view(-1, self.hparams.input_dim, 64, 64).contiguous(),
+                timesteps=t,
+                context=z
+            )
+            x_cond = x_cond.view(-1, self.hparams.input_dim, 64*64).permute(0, 2, 1)
+
+            # Unconditional prediction (without context)
+            x_uncond = self(
+                x_t.permute(0, 2, 1).view(-1, self.hparams.input_dim, 64, 64).contiguous(),
+                timesteps=t,
+                context=torch.zeros(num_samples, 1, self.hparams.embed_dim, device=device)
+            )
+            x_uncond = x_uncond.view(-1, self.hparams.input_dim, 64*64).permute(0, 2, 1).contiguous()
+
+            # Perform classifier-free guidance
+            x_guided = x_uncond + guidance_scale * (x_cond - x_uncond)
+
+            # Update the diffusion step using guided output
+            x_t = self.noise_scheduler.step(model_output=x_guided, t=t, sample=x_t)
+
+            # Save intermediate steps if needed
+            if intermediate_steps and t % (self.hparams.num_train_steps // intermediate_steps) == 0:
+                intermediates.append(x_t)
+
+        return x_t, intermediates
+
+    # Given diffusion model: model(x, t, cond)
+# x: noisy input at timestep t
+# cond: conditional information, cond=None is unconditional
+
+def guided_sampling(model, x_t, t, cond, guidance_scale):
+    # Predict noise conditioned on cond
+    eps_cond = model(x_t, t, cond)
+    
+    # Predict noise without conditioning (unconditional)
+    eps_uncond = model(x_t, t, cond=None)
+    
+    # Perform classifier-free guidance
+    eps_guided = eps_uncond + guidance_scale * (eps_cond - eps_uncond)
+    
+    return eps_guided
 
 
 

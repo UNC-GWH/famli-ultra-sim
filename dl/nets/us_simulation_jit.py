@@ -773,3 +773,14 @@ class MergedLinearLabel11WOG(MergedLinearLabel11):
             mask_fan = self.USR.mask_fan
             
         return X*mask_fan
+
+class MergedLinearLabel11PassThrough(MergedLinearLabel11):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+        
+        if mask_fan is None:
+            mask_fan = self.USR.mask_fan
+            
+        return X*mask_fan

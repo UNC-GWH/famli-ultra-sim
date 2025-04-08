@@ -1,21 +1,22 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim import lr_scheduler
-from torch.utils.data import DataLoader
-from torch import nn
 
 from generative.networks import nets as MNets
-from nets.cut_D import Discriminator
-from nets.cut_G import Generator
-from nets.cut_P import Head
+from nets.cut_D import Discriminator, ConditionalDiscriminator
+from nets.cut_G import Generator, ConditionalGenerator
+from nets.layers import Head, MLPHeads
 from nets.lotus import UltrasoundRendering, UltrasoundRenderingLinear, UltrasoundRenderingConv1d
 
 import lightning as L
 from lightning.pytorch.core import LightningModule
 import os
 
+import torchvision
 from torchvision import transforms as T
+import monai
 
 import numpy as np
 
@@ -40,24 +41,40 @@ class CutG(LightningModule):
 
         self.automatic_optimization = False
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+
+        hparams_group = parent_parser.add_argument_group('CutG')
+        hparams_group.add_argument('--lr_g', default=1e-4, type=float, help='Learning rate generator')
+        hparams_group.add_argument('--lr_d', default=1e-5, type=float, help='Learning rate for discriminator')
+        hparams_group.add_argument('--betas_g', help='Betas for generator optimizer', nargs='+', type=float, default=(0.5, 0.999))            
+        hparams_group.add_argument('--betas_d', help='Betas for dicriminator optimizer', nargs='+', type=float, default=(0.9, 0.999))            
+        hparams_group.add_argument('--weight_decay_g', help='Weight decay for generator optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--weight_decay_d', help='Weight decay for discriminator optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--adv_w', help='Weight for the Adversarial generator loss', type=float, default=1.0)
+        hparams_group.add_argument('--temperature', help='controls smoothness in NCE_loss a.k.a. temperature', type=float, default=0.07)
+        hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
+
+        return parent_parser
+
     def configure_optimizers(self):
         opt_gen = optim.AdamW(
             self.G.parameters(),
-            lr=self.hparams.lr,
-            betas=self.hparams.betas,
-            weight_decay=self.hparams.weight_decay            
+            lr=self.hparams.lr_g,
+            betas=self.hparams.betas_g,
+            weight_decay=self.hparams.weight_decay_g            
         )
         opt_disc = optim.AdamW(
             self.D_Y.parameters(),
-            lr=self.hparams.lr,
-            betas=self.hparams.betas,
-            weight_decay=self.hparams.weight_decay
+            lr=self.hparams.lr_d,
+            betas=self.hparams.betas_d,
+            weight_decay=self.hparams.weight_decay_d
         )        
         opt_head = optim.AdamW(
             self.H.parameters(),
-            lr=self.hparams.lr,
-            betas=self.hparams.betas,
-            weight_decay=self.hparams.weight_decay
+            lr=self.hparams.lr_g,
+            betas=self.hparams.betas_g,
+            weight_decay=self.hparams.weight_decay_g
         )
 
         return [opt_gen, opt_disc, opt_head]
@@ -99,7 +116,7 @@ class CutG(LightningModule):
         # update D
         self.set_requires_grad(self.D_Y, True)
         opt_disc.zero_grad()
-        loss_d = self.compute_D_loss(Y, Y_fake)
+        loss_d = self.compute_D_loss(Y, Y_fake, sync_dist=False, step='train')
         loss_d.backward()
         opt_disc.step()
 
@@ -107,14 +124,11 @@ class CutG(LightningModule):
         self.set_requires_grad(self.D_Y, False)
         opt_gen.zero_grad()
         opt_head.zero_grad()
-        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt, sync_dist=False, step='train')
 
         loss_g.backward()
         opt_gen.step()
         opt_head.step()
-        
-        self.log("train_loss_g", loss_g)
-        self.log("train_loss_d", loss_d)
 
     def validation_step(self, val_batch, batch_idx):
 
@@ -126,11 +140,9 @@ class CutG(LightningModule):
         if self.hparams.lambda_y:
             Y_idt = self.G(Y)           
 
-        loss_g = self.compute_G_loss(X, Y, Y_fake, Y_idt)
+        self.compute_G_loss(X, Y, Y_fake, Y_idt, sync_dist=True, step='val')
 
-        self.log("val_loss", loss_g, sync_dist=True)
-
-    def compute_D_loss(self, Y, Y_fake):
+    def compute_D_loss(self, Y, Y_fake, sync_dist=False, step='train'):
         # Fake
         fake = Y_fake.detach()
         pred_fake = self.D_Y(fake)
@@ -140,9 +152,14 @@ class CutG(LightningModule):
         loss_D_real = self.mse(pred_real, torch.ones_like(pred_real))
 
         loss_D_Y = (loss_D_fake + loss_D_real) / 2
+
+        self.log(f"{step}_loss_d", loss_D_Y, sync_dist=sync_dist)
+        self.log(f"{step}_loss_d_real", loss_D_real, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_d_fake", loss_D_fake, sync_dist=sync_dist)        
+
         return loss_D_Y
 
-    def compute_G_loss(self, X, Y, Y_fake, Y_idt = None):
+    def compute_G_loss(self, X, Y, Y_fake, Y_idt = None, sync_dist=False, step='train'):
         fake = Y_fake
         pred_fake = self.D_Y(fake)
         loss_G_adv = self.mse(pred_fake, torch.ones_like(pred_fake))
@@ -150,9 +167,15 @@ class CutG(LightningModule):
         loss_NCE = self.calculate_NCE_loss(X, Y_fake)
         if self.hparams.lambda_y > 0:
             loss_NCE_Y = self.calculate_NCE_loss(Y, Y_idt)
+            self.log(f"{step}_loss_g_nce_y", loss_NCE_Y, sync_dist=sync_dist)    
             loss_NCE = (loss_NCE + loss_NCE_Y) * 0.5
 
-        loss_G = loss_G_adv + loss_NCE
+        loss_G = loss_G_adv*self.hparams.adv_w + loss_NCE
+
+        self.log(f"{step}_loss", loss_G, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_g_adv", loss_G_adv, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_g_nce", loss_NCE, sync_dist=sync_dist)    
+
         return loss_G
 
     def calculate_NCE_loss(self, src, tgt):
@@ -170,7 +193,197 @@ class CutG(LightningModule):
 
     def patch_nce_loss(self, feat_q, feat_k):
         feat_k = feat_k.detach()
-        out = torch.mm(feat_q, feat_k.transpose(1, 0)) / 0.07
+        out = torch.mm(feat_q, feat_k.transpose(1, 0)) / self.hparams.temperature
+        loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
+        return loss
+    
+class ConditionalCutG(LightningModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+
+        self.save_hyperparameters()
+        
+        # self.D_Y = Discriminator()
+        # self.D_Y = monai.networks.nets.resnet18(n_input_channels=1, num_classes=self.hparams.num_classes, spatial_dims=2)
+        # self.D_Y = Discriminator(out_features=self.hparams.num_classes)
+        self.D_Y = ConditionalDiscriminator(num_classes=self.hparams.num_classes)
+        self.G = ConditionalGenerator(num_classes=self.hparams.num_classes)
+        self.H = MLPHeads(features=self.G.layer_id_num_features)
+
+        self.l1 = nn.L1Loss()
+        self.mse = nn.MSELoss()
+        self.ce_loss = torch.nn.CrossEntropyLoss()
+        self.cross_entropy_loss = torch.nn.CrossEntropyLoss(reduction='none')
+
+        self.automatic_optimization = False
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+
+        hparams_group = parent_parser.add_argument_group('Conditional CutG')
+        hparams_group.add_argument('--lr_g', default=1e-4, type=float, help='Learning rate for generator')
+        hparams_group.add_argument('--lr_d', default=1e-5, type=float, help='Learning rate for discriminator')
+        hparams_group.add_argument('--betas_g', help='Betas for generator optimizer', nargs='+', type=float, default=(0.3, 0.999))            
+        hparams_group.add_argument('--betas_d', help='Betas for dicriminator optimizer', nargs='+', type=float, default=(0.9, 0.999))            
+        hparams_group.add_argument('--weight_decay_g', help='Weight decay for generator optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--weight_decay_d', help='Weight decay for discriminator optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--adv_w', help='Weight for the Adversarial generator loss', type=float, default=1.0)
+        hparams_group.add_argument('--temperature', help='controls smoothness in NCE_loss a.k.a. temperature', type=float, default=0.07)
+        hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
+        
+        hparams_group.add_argument('--num_classes', help='Number of classes for conditioning', type=int, default=4)
+
+        return parent_parser
+
+
+    def configure_optimizers(self):
+        opt_gen = optim.AdamW(
+            self.G.parameters(),
+            lr=self.hparams.lr_g,
+            betas=self.hparams.betas_g,
+            weight_decay=self.hparams.weight_decay_g            
+        )
+        opt_disc = optim.AdamW(
+            self.D_Y.parameters(),
+            lr=self.hparams.lr_d,
+            betas=self.hparams.betas_d,
+            weight_decay=self.hparams.weight_decay_d
+        )        
+        opt_head = optim.AdamW(
+            self.H.parameters(),
+            lr=self.hparams.lr_g,
+            betas=self.hparams.betas_g,
+            weight_decay=self.hparams.weight_decay_g
+        )
+
+        return [opt_gen, opt_disc, opt_head]
+
+    def forward(self, X, Y_labels):
+        return self.G(X, Y_labels)
+
+    # def scheduler_step(self):
+    #     self.scheduler_disc.step()
+    #     self.scheduler_gen.step()
+    #     self.scheduler_mlp.step()
+
+    def set_requires_grad(self, nets, requires_grad=False):
+        """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+        Parameters:
+            nets (network list)   -- a list of networks
+            requires_grad (bool)  -- whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
+
+    def training_step(self, train_batch, batch_idx):
+        
+        X, X_labels, Y, Y_labels = train_batch
+
+        opt_gen, opt_disc, opt_head = self.optimizers()
+
+        Y_fake = self.G(X, Y_labels)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y, Y_labels)
+
+        # update D
+        self.set_requires_grad(self.D_Y, True)
+        opt_disc.zero_grad()
+        loss_d = self.compute_D_loss(Y, Y_labels, Y_fake, X_labels)
+        loss_d.backward()
+        opt_disc.step()
+
+        # update G
+        self.set_requires_grad(self.D_Y, False)
+        opt_gen.zero_grad()
+        opt_head.zero_grad()
+        loss_g = self.compute_G_loss(X, X_labels, Y, Y_fake, Y_labels, Y_idt)        
+
+        loss_g.backward()
+        opt_gen.step()
+        opt_head.step()
+
+    def validation_step(self, val_batch, batch_idx):
+
+        X, X_labels, Y, Y_labels = val_batch    
+
+        Y_fake = self.G(X, labels=Y_labels)
+
+        Y_idt = None
+        if self.hparams.lambda_y:
+            Y_idt = self.G(Y, labels=Y_labels)           
+
+        loss_g = self.compute_G_loss(X, X_labels, Y, Y_fake, Y_labels, Y_idt, step='val', sync_dist=True)
+
+    def compute_D_loss(self, Y, Y_labels, Y_fake, X_labels, step='train', sync_dist=False):
+        # Fake
+        pred_fake = self.D_Y(Y_fake.detach(), Y_labels)
+        # pred_fake = self.D_Y(Y_fake.detach())
+        loss_D_fake = self.mse(pred_fake, torch.zeros_like(pred_fake))
+        # X_labels = F.one_hot(X_labels, num_classes=self.hparams.num_classes).float()
+        # X_labels = torch.ones_like(pred_fake) * X_labels.view(-1, 1, 1, 1).float()
+        # loss_D_fake = self.mse(pred_fake, X_labels)
+        # loss_D_fake = self.ce_loss(pred_fake, X_labels)
+        # Real
+        pred_real = self.D_Y(Y, Y_labels)
+        # pred_real = self.D_Y(Y)
+        loss_D_real = self.mse(pred_real, torch.ones_like(pred_real))        
+        # Y_labels = F.one_hot(Y_labels, num_classes=self.hparams.num_classes).float()
+        # Y_labels = torch.ones_like(pred_real) * Y_labels.view(-1, 1, 1, 1).float()
+        # loss_D_real = self.mse(pred_real, Y_labels.float())
+        # loss_D_real = self.ce_loss(pred_real, Y_labels)
+
+        loss_D_Y = (loss_D_fake + loss_D_real) / 2
+
+        self.log(f"{step}_loss_d", loss_D_Y, sync_dist=sync_dist)
+        self.log(f"{step}_loss_d_real", loss_D_real, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_d_fake", loss_D_fake, sync_dist=sync_dist)        
+
+        return loss_D_Y
+
+    def compute_G_loss(self, X, X_labels, Y, Y_fake, Y_labels, Y_idt = None, sync_dist=False, step='train'):
+    
+        fake = Y_fake
+        pred_fake = self.D_Y(fake, Y_labels)
+        # pred_fake = self.D_Y(fake)
+        loss_G_adv = self.mse(pred_fake, torch.ones_like(pred_fake))        
+        # loss_G_adv = self.mse(pred_fake, torch.ones_like(pred_fake)*Y_labels.float().view(-1, 1, 1, 1))
+
+        loss_NCE = self.calculate_NCE_loss(X, X_labels, Y_fake, Y_labels)
+        if self.hparams.lambda_y > 0:
+            loss_NCE_Y = self.calculate_NCE_loss(Y, Y_labels, Y_idt, Y_labels)
+            self.log(f"{step}_loss_g_nce_y", loss_NCE_Y, sync_dist=sync_dist)    
+            loss_NCE = (loss_NCE + loss_NCE_Y) * 0.5
+
+        loss_G = loss_G_adv*self.hparams.adv_w + loss_NCE
+
+        self.log(f"{step}_loss", loss_G, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_g_adv", loss_G_adv, sync_dist=sync_dist)        
+        self.log(f"{step}_loss_g_nce", loss_NCE, sync_dist=sync_dist)    
+
+        return loss_G
+
+    def calculate_NCE_loss(self, X, X_labels, Y, Y_labels):        
+        feat_q, patch_ids_q = self.G(Y, Y_labels, encode_only=True)        
+        feat_k, _ = self.G(X, X_labels, encode_only=True, patch_ids=patch_ids_q)
+
+        feat_k_pool = self.H(feat_k)
+        feat_q_pool = self.H(feat_q)
+
+        total_nce_loss = 0.0
+        for f_q, f_k in zip(feat_q_pool, feat_k_pool):
+            loss = self.patch_nce_loss(f_q, f_k)
+            total_nce_loss += loss.mean()
+        return total_nce_loss / 5
+
+    def patch_nce_loss(self, feat_q, feat_k):
+        feat_k = feat_k.detach()
+        out = torch.mm(feat_q, feat_k.transpose(1, 0)) / self.hparams.temperature
         loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
         return loss
 

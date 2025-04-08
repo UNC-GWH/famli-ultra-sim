@@ -16,7 +16,7 @@ from callbacks import logger
 
 import lightning as L
 
-from lightning import Trainer
+from lightning import Trainer, seed_everything
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks import ModelCheckpoint
 # from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -31,6 +31,11 @@ import SimpleITK as sitk
 
 
 def main(args):
+
+    deterministic = None
+    if args.seed_everything:
+        seed_everything(args.seed_everything, workers=True)
+        deterministic = True
 
     NN = getattr(us_simu, args.nn)    
     model = NN(**vars(args))
@@ -92,6 +97,7 @@ def main(args):
         accelerator='gpu', 
         devices=torch.cuda.device_count(),
         strategy=DDPStrategy(find_unused_parameters=True),
+        deterministic=deterministic
         # strategy=DDPStrategy(),
     )
     
@@ -107,6 +113,7 @@ if __name__ == '__main__':
     hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
     hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
     hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)    
+    hparams_group.add_argument('--seed_everything', help='Seed everything for training', type=int, default=None)
 
     input_group = parser.add_argument_group('Input')
     

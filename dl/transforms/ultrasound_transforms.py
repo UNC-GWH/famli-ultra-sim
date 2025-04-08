@@ -321,9 +321,24 @@ class USClassTrainTransforms:
     def __call__(self, inp):
         return self.train_transform(inp)
 
+
+class USCutTrainTransforms:
+    def __init__(self, size: int = 256):
+
+        self.train_transform = transforms.Compose(
+            [
+                ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0),
+                # transforms.RandomHorizontalFlip(),
+                transforms.CenterCrop(size)
+            ]
+        )
+
+    def __call__(self, inp):
+        return self.train_transform(inp)
+
 class USClassEvalTransforms:
 
-    def __init__(self, size=256, unsqueeze=False):
+    def __init__(self, size=256):
 
         self.test_transform = transforms.Compose(
             [   
@@ -331,13 +346,9 @@ class USClassEvalTransforms:
                 transforms.CenterCrop(size),
             ]
         )
-        self.unsqueeze = unsqueeze
 
     def __call__(self, inp):
-        inp = self.test_transform(inp)
-        if self.unsqueeze:
-            return inp.unsqueeze(dim=0)
-        return inp
+        return self.test_transform(inp)
 
 class USTrainTransforms:
     def __init__(self, height: int = 128):

@@ -983,7 +983,7 @@ class FluidDataModule(LightningDataModule):
         group.add_argument('--csv_valid', type=str, default=None, required=True)
         group.add_argument('--csv_test', type=str, default=None, required=True)
         group.add_argument('--mount_point', type=str, default="./")
-        group.add_argument('--drop_last', type=int, default=0)
+        group.add_argument('--drop_last', type=int, default=False)
 
         return parent_parser
 
@@ -1793,3 +1793,260 @@ class ImgPCDataModule(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=1, num_workers=1, drop_last=True)
+
+class USCutDataset(Dataset):
+    def __init__(self, dfs, mount_point = "./", transform=None, img_column="img_path", class_column="pred_class", num_samples=1000):
+        self.dfs = dfs
+        self.mount_point = mount_point
+        self.transform = transform
+        self.img_column = img_column
+        self.class_column = class_column
+        self.num_samples = num_samples
+
+    # def shuffle(self):
+    #     """
+    #     Shuffle the rows of multiple aligned dataframes in two steps:
+    #     1. Within each dataframe, group rows by class (using 'class_pred'),
+    #         shuffle the rows in each class (with the same order across all dfs),
+    #         and then reassemble the dataframe in the order specified by unique_classes.
+    #     2. Generate one overall permutation and apply it identically to all dataframes.
+        
+    #     This ensures that, after shuffling, the i-th row in every dataframe belongs to the same class.
+        
+    #     Returns:
+    #         list of pd.DataFrame: The list of shuffled dataframes.
+    #     """
+    #     # Step 1: For each dataframe, group rows by class, shuffle them, and then reassemble the dataframe.
+
+    #     unique_classes = self.dfs[0][self.class_column].unique()
+    #     random.shuffle(unique_classes)
+
+    #     shuffled_dfs = []
+        
+    #     for df in self.dfs:
+    #         # Group indices by class.            
+    #         shuffled_df = []
+    #         for cls in unique_classes:
+    #             group = df.query(f"{self.class_column} == {cls}").sample(frac=1.0)
+    #             shuffled_df.append(group)
+    #         # Concatenate the shuffled groups.
+    #         shuffled_df = pd.concat(shuffled_df, ignore_index=True).reset_index(drop=True)
+    #         shuffled_dfs.append(shuffled_df)
+
+    #     # Step 2: Generate one overall permutation for the full dataframe.
+    #     total_rows = len(shuffled_dfs[0])
+    #     perm = list(range(total_rows))
+    #     random.shuffle(perm)
+        
+    #     # Apply the same permutation to every dataframe.
+    #     shuffled_dfs = [df.iloc[perm].reset_index(drop=True) for df in shuffled_dfs]
+        
+    #     self.dfs = shuffled_dfs
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+
+        imgs_t = []
+        
+        img_source_arr = []
+        label_source_arr = []
+        img_target_arr = []
+        label_target_arr = []
+        
+        for idx_s, df in enumerate(self.dfs):
+            img_path = os.path.join(self.mount_point, df.sample(n=1)[self.img_column].values[0])
+            img = sitk.ReadImage(img_path)
+            img_source_t = torch.tensor(sitk.GetArrayFromImage(img), dtype=torch.float32)
+            if img.GetNumberOfComponentsPerPixel() == 1:
+                img_source_t = img_source_t.unsqueeze(-1)
+            else:
+                img_source_t = img_source_t[:,:,:1]
+            img_source_t = img_source_t.permute(2, 0, 1)  # Change to (C, H, W)
+            if self.transform:
+                img_source_t = self.transform(img_source_t)
+            img_source_arr.append(img_source_t)
+            label_source_arr.append(torch.tensor(idx_s))
+
+            idx_t = random.randint(0, len(self.dfs) - 2)
+            # If idx_t is greater than or equal to idx_s (current df) the excluded number, shift it up by one. That ensure that it picks a different df.
+            if idx_t >= idx_s:
+                idx_t += 1
+
+            img_path = os.path.join(self.mount_point, self.dfs[idx_t].sample(n=1)[self.img_column].values[0])
+            img = sitk.ReadImage(img_path)
+            img_target_t = torch.tensor(sitk.GetArrayFromImage(img), dtype=torch.float32)
+            if img.GetNumberOfComponentsPerPixel() == 1:
+                img_target_t = img_target_t.unsqueeze(-1)
+            else:
+                img_target_t = img_target_t[:,:,:1]
+            img_target_t = img_target_t.permute(2, 0, 1)  # Change to (C, H, W)
+            if self.transform:
+                img_target_t = self.transform(img_target_t)
+            img_target_arr.append(img_target_t)
+            label_target_arr.append(torch.tensor(idx_t))
+
+        return img_source_arr, label_source_arr, img_target_arr, label_target_arr
+        
+
+class CutDataModule(LightningDataModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.save_hyperparameters(logger=False)
+
+        self.dfs_train = [pd.read_parquet(csv) for csv in self.hparams.csv_train]
+        self.dfs_valid = [pd.read_parquet(csv) for csv in self.hparams.csv_valid]
+        self.dfs_test = [pd.read_parquet(csv) for csv in self.hparams.csv_test]
+
+        self.train_transform = ultrasound_transforms.USCutTrainTransforms()
+        self.test_transform = ultrasound_transforms.USClassEvalTransforms()
+
+
+    @staticmethod
+    def add_data_specific_args(parent_parser):
+
+        group = parent_parser.add_argument_group("Loads a series of images to train a ClassConditionedCut Model")
+        
+        # Datasets and loaders
+        group.add_argument('--mount_point', type=str, default="./", help="Mount point for the data")
+        group.add_argument('--csv_train', type=str, action='append', required=True, help="Path to the parquet file containing the image paths. Must contain column file_path and class_pred")
+        group.add_argument('--csv_valid', type=str, action='append', required=True, help="Path to the parquet file containing the image paths")
+        group.add_argument('--csv_test', type=str, action='append', required=True, help="Path to the parquet file containing the image paths")
+        group.add_argument('--img_column', type=str, default="file_path")
+        group.add_argument('--class_column', type=str, default="class_pred")
+        group.add_argument('--batch_size', type=int, default=32, help="Batch size for the train dataloaders")
+        group.add_argument('--num_workers', type=int, default=1)
+        group.add_argument('--prefetch_factor', type=int, default=2)
+        group.add_argument('--drop_last', type=int, default=False)
+        group.add_argument('--num_samples_train', type=int, default=10000)
+        group.add_argument('--num_samples_val', type=int, default=1000)
+        group.add_argument('--num_samples_test', type=int, default=100)
+
+        return parent_parser        
+
+    def collate_all(self, batch):
+        
+        source_img_t = torch.cat([torch.stack(s_i) for s_i, s_l, t_i, t_l in batch])
+        source_label_t = torch.cat([torch.stack(s_l) for s_i, s_l, t_i, t_l in batch])
+        target_img_t = torch.cat([torch.stack(t_i) for s_i, s_l, t_i, t_l in batch])
+        target_label_t = torch.cat([torch.stack(t_l) for s_i, s_l, t_i, t_l in batch])
+        
+        return source_img_t,source_label_t, target_img_t, target_label_t
+
+    def setup(self, stage=None):
+        self.train_ds = USCutDataset(self.dfs_train, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_train, transform=self.train_transform)
+        self.val_ds = USCutDataset(self.dfs_valid, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_val, transform=self.test_transform)
+        self.test_ds = USCutDataset(self.dfs_test, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_test, transform=self.test_transform)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.hparams.drop_last, shuffle=True, prefetch_factor=self.hparams.prefetch_factor, collate_fn=self.collate_all)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=self.hparams.drop_last, collate_fn=self.collate_all)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds, batch_size=1, num_workers=self.hparams.num_workers, collate_fn=self.collate_all)
+
+class USCutDatasetV2(Dataset):
+    def __init__(self, dfs, mount_point = "./", transform=None, img_column="img_path", class_column="pred_class", num_samples=1000):
+        self.dfs = dfs
+        self.mount_point = mount_point
+        self.transform = transform
+        self.img_column = img_column
+        self.class_column = class_column
+        self.num_samples = num_samples
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+
+        imgs_t = []
+        
+        img_source_arr = []
+        for df in self.dfs[0:-1]:
+            img_path = os.path.join(self.mount_point, df.sample(n=1)[self.img_column].values[0])
+            img = sitk.ReadImage(img_path)
+            img_source_t = torch.tensor(sitk.GetArrayFromImage(img), dtype=torch.float32)
+            if img.GetNumberOfComponentsPerPixel() == 1:
+                img_source_t = img_source_t.unsqueeze(-1)
+            else:
+                img_source_t = img_source_t[:,:,:1]
+            img_source_t = img_source_t.permute(2, 0, 1)  # Change to (C, H, W)
+            if self.transform:
+                img_source_t = self.transform(img_source_t)
+            img_source_arr.append(img_source_t)
+
+        img_target_arr = []
+        df_target = self.dfs[-1]
+        for i in range(len(img_source_arr)):
+            img_path = os.path.join(self.mount_point, df_target.sample(n=1)[self.img_column].values[0])
+            img = sitk.ReadImage(img_path)
+            img_target_t = torch.tensor(sitk.GetArrayFromImage(img), dtype=torch.float32)
+            if img.GetNumberOfComponentsPerPixel() == 1:
+                img_target_t = img_target_t.unsqueeze(-1)
+            else:
+                img_target_t = img_target_t[:,:,:1]
+            img_target_t = img_target_t.permute(2, 0, 1)  # Change to (C, H, W)
+            if self.transform:
+                img_target_t = self.transform(img_target_t)
+            img_target_arr.append(img_target_t)
+        
+        return img_source_arr, img_target_arr
+
+class CutDataModuleV2(LightningDataModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.save_hyperparameters(logger=False)
+
+        self.dfs_train = [pd.read_parquet(csv) for csv in self.hparams.csv_train]
+        self.dfs_valid = [pd.read_parquet(csv) for csv in self.hparams.csv_valid]
+        self.dfs_test = [pd.read_parquet(csv) for csv in self.hparams.csv_test]
+
+        self.train_transform = ultrasound_transforms.USCutTrainTransforms()
+        self.test_transform = ultrasound_transforms.USClassEvalTransforms()
+
+
+    @staticmethod
+    def add_data_specific_args(parent_parser):
+
+        group = parent_parser.add_argument_group("Loads a series of images to train a ClassConditionedCut Model")
+        
+        # Datasets and loaders
+        group.add_argument('--mount_point', type=str, default="./", help="Mount point for the data")
+        group.add_argument('--csv_train', type=str, action='append', required=True, help="Path to the parquet file containing the image paths. Must contain column file_path and class_pred")
+        group.add_argument('--csv_valid', type=str, action='append', required=True, help="Path to the parquet file containing the image paths")
+        group.add_argument('--csv_test', type=str, action='append', required=True, help="Path to the parquet file containing the image paths")
+        group.add_argument('--img_column', type=str, default="file_path")
+        group.add_argument('--class_column', type=str, default="class_pred")
+        group.add_argument('--batch_size', type=int, default=32, help="Batch size for the train dataloaders")
+        group.add_argument('--num_workers', type=int, default=1)
+        group.add_argument('--prefetch_factor', type=int, default=2)
+        group.add_argument('--drop_last', type=int, default=False)
+        group.add_argument('--num_samples_train', type=int, default=10000)
+        group.add_argument('--num_samples_val', type=int, default=1000)
+        group.add_argument('--num_samples_test', type=int, default=100)
+
+        return parent_parser        
+
+    def collate_all(self, batch):
+        
+        source_t = torch.cat([torch.stack(s) for s, t in batch])
+        target_t = torch.cat([torch.stack(t) for s, t in batch])
+        
+        return source_t, target_t
+
+    def setup(self, stage=None):
+        self.train_ds = USCutDatasetV2(self.dfs_train, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_train, transform=self.train_transform)
+        self.val_ds = USCutDatasetV2(self.dfs_valid, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_val, transform=self.test_transform)
+        self.test_ds = USCutDatasetV2(self.dfs_test, self.hparams.mount_point, img_column=self.hparams.img_column, num_samples=self.hparams.num_samples_test, transform=self.test_transform)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, persistent_workers=True, pin_memory=True, drop_last=self.hparams.drop_last, shuffle=True, prefetch_factor=self.hparams.prefetch_factor, collate_fn=self.collate_all)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=self.hparams.drop_last, collate_fn=self.collate_all)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds, batch_size=1, num_workers=self.hparams.num_workers, collate_fn=self.collate_all)

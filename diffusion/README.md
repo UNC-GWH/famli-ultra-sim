@@ -69,5 +69,5 @@ The output image is saved as an NRRD file in:
 
 Where:
 
- frame_number is derived from the input path.
+- frame_number is derived from the input path.
 - basename is the original filename.

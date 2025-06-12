@@ -28,7 +28,7 @@ from monai.networks.nets import (
 import numpy as np
 import random
 
-from nets.cut_D import Discriminator
+from .cut_D import Discriminator
 from .layers import TimeDistributed
 
 class GaussianNoise(nn.Module):    

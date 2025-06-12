@@ -1754,9 +1754,15 @@ class ImgPCDataModule(LightningDataModule):
         super().__init__()
         self.save_hyperparameters(logger=False)
 
-        self.train_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
-        self.valid_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
-        self.test_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
+        self.train_transform = None
+        self.valid_transform = None
+        self.test_transform = None
+
+        if self.hparams.rescale_factor is not None:
+            self.hparams.rescale_factor = 1.0
+            self.train_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
+            self.valid_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
+            self.test_transform = saxi_transforms.EvalTransform(rescale_factor=self.hparams.rescale_factor)
         
     @staticmethod
     def add_data_specific_args(parent_parser):
@@ -1774,7 +1780,7 @@ class ImgPCDataModule(LightningDataModule):
         group.add_argument('--np_test', type=str, required=True, help="Path to the numpy file containing the point clouds")
         group.add_argument('--batch_size', type=int, default=4, help="Batch size for the train dataloaders")
         group.add_argument('--num_workers', type=int, default=1)
-        group.add_argument('--rescale_factor', type=float, default=1.0)
+        group.add_argument('--rescale_factor', type=float, default=None)
 
         return parent_parser
         

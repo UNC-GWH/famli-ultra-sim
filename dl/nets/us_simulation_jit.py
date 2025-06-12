@@ -784,3 +784,15 @@ class MergedLinearLabel11PassThrough(MergedLinearLabel11):
             mask_fan = self.USR.mask_fan
             
         return X*mask_fan
+
+class MergedGuidedLabel11(MergedLinearLabel11):
+    def __init__(self):
+        super().__init__()
+        self.au = torch.jit.load('/mnt/raid/C1_ML_Analysis/train_output/ultra-sim/guided/v0.1/model_traced.pt')
+
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+        # X = super().forward(X, grid, inverse_grid, mask_fan)
+        if mask_fan is None:
+            mask_fan = self.USR.mask_fan
+        X, z_mu, z_sigma = self.au(X)
+        return X*mask_fan

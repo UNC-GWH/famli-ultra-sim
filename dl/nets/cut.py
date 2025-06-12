@@ -5,10 +5,10 @@ import torch.optim as optim
 from torch.optim import lr_scheduler
 
 from generative.networks import nets as MNets
-from nets.cut_D import Discriminator, ConditionalDiscriminator
-from nets.cut_G import Generator, ConditionalGenerator
-from nets.layers import Head, MLPHeads
-from nets.lotus import UltrasoundRendering, UltrasoundRenderingLinear, UltrasoundRenderingConv1d
+from .cut_D import Discriminator, ConditionalDiscriminator
+from .cut_G import Generator, ConditionalGenerator
+from .layers import Head, MLPHeads
+from .lotus import UltrasoundRendering, UltrasoundRenderingLinear, UltrasoundRenderingConv1d
 
 import lightning as L
 from lightning.pytorch.core import LightningModule

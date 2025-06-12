@@ -37,7 +37,7 @@ class MergeGroup():
                 # print("Processing:", row)
 
                 label = row['label']
-                input_img_filename = os.path.join(self.mount_dir, row['img_fn'])
+                input_img_filename = os.path.join(self.mount_dir, row['img'])
                     
                 img = sitk.ReadImage(input_img_filename)
 
@@ -127,7 +127,7 @@ def main(args):
     df = pd.read_csv(args.csv)
 
     for idx, row in df.iterrows():
-        input_img_filename = os.path.join(args.mount_dir, str(row['img_fn']))
+        input_img_filename = os.path.join(args.mount_dir, str(row['img']))
 
         if os.path.exists(input_img_filename):
 
@@ -180,13 +180,15 @@ def main(args):
     if args.out_dir:
         out_dir = args.out_dir
     else:
-        out_dir = os.path.splitext(args.csv)[0] + "_merged"
+        out_dir = args.mount_dir
     print("Merged images output directory:", out_dir)
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     
-    with Pool(cpu_count()) as p:
+    cpu_count = args.n_proc if args.n_proc is not None else cpu_count()
+
+    with Pool(cpu_count) as p:
         p.map(MergeGroup(df_g, output_size, output_spacing, output_origin, out_dir, args.mount_dir), args.group_order)
 
     merge_groups(args, output_size, output_spacing, output_origin, out_dir)
@@ -196,32 +198,38 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Merge NRRD files as a single image', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
-    parser.add_argument('--csv', type=str, help='CSV file with columns index,img,group', required=True)
+    parser.add_argument('--csv', type=str, help='CSV file with columns img,group - column ignore_size_info to ignore the size during compute of image space is optional', required=True)
     parser.add_argument('--out_dir', type=str, help='Output directory', default=None)
-    parser.add_argument('--mount_dir', type=str, help='Mount directory', default="./")
+    parser.add_argument('--mount_dir', type=str, help='Mount directory/input directory', default="./")
     parser.add_argument('--group_order', type=str, nargs='+', help='Group order to merge. Latter values replace preceding values.', default=
         # ["lady",
         #"uterus",
-        ["gestational",
+        # ["gestational",
+        ["lady",
+        "lady_sacrum",
+        "lady_bladder",
+        "lady_uterus",
+        "lady_sac",
         "fetus",
         "visceral",
         "bronchus",
-        "brain",
-        #"subcorticals",
+        "brain",        
         "cardiovascular",
         "skull",
         "skeleton",
         "ribs",
         "arms",
         "legs"])
-    parser.add_argument('--min_size', type=int, help='Output size', default=512)
-    parser.add_argument('--pad', type=float, help='Pad the output', default=0.0)
+    parser.add_argument('--min_size', type=int, help='Output size', default=384)
+    parser.add_argument('--pad', type=float, help='Pad the output', default=0)
     parser.add_argument('--mean', type=str, help='Name of column to replace the labeled image, it represents the mean value', default='mean')
-    parser.add_argument('--std', type=str, help='Name of column to replace the labeled image, it represents the standard deviation value', default='std')
+    parser.add_argument('--std', type=str, help='Name of column to replace the labeled image, it represents the standard deviation value', default='stddev')
     parser.add_argument('--b_mean', type=float, help='Background mean', default=3.0)
     parser.add_argument('--b_std', type=float, help='Background std', default=3.0)
     parser.add_argument('--a_min', type=float, help='Clip minimum value', default=None)
     parser.add_argument('--a_max', type=float, help='Clip maximum value', default=None)
+    parser.add_argument('--n_proc', type=int, help='Max number of processes', default=None)
+
     
     args = parser.parse_args()
 

@@ -9,6 +9,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
+from torch.nn import functional as F
 
 class MocoImageLogger(Callback):
     def __init__(self, num_images=12, log_steps=100):
@@ -2119,4 +2120,218 @@ class USDDPMPCLoggerNeptune(Callback):
         # Update the layout if necessary
         fig.update_layout(height=900, width=1600, title_text="Side-by-Side 3D Scatter Plots")
 
+        return fig
+    
+
+class USBabyFrameLoggerNeptune(Callback):
+    # This callback logs images for visualization during training, with the ability to log images to the Neptune logging system for easy monitoring and analysis
+    def __init__(self, num_surf=5, log_steps=10, num_steps=5):
+        self.log_steps = log_steps
+        self.num_surf = num_surf
+        self.num_steps = num_steps
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx): 
+        # This function is called at the end of each training batch
+        if pl_module.global_step % self.log_steps == 0:
+            
+            pl_module.eval()
+            with torch.no_grad():
+
+                X, X_origin, X_end, X_PC = batch
+                X = X[0:1]
+                X_origin = X_origin[0:1] 
+                X_end = X_end[0:1]
+                X_PC = X_PC[0:1]
+
+                x_sweeps, sweeps_tags = pl_module.volume_sampling(X, X_origin, X_end)
+
+                x_hat = pl_module(x_sweeps, sweeps_tags)
+
+                y, points = pl_module.compute_orthogonal_frame(X_PC)        
+                
+                fig = self.plot_diffusion(X_PC[0:self.num_surf].cpu().numpy(), points[0:self.num_surf].cpu().numpy(), y[0:self.num_surf].cpu().numpy(), x_hat[0:self.num_surf].cpu().numpy())
+                trainer.logger.experiment["images/batch"].upload(fig)
+                
+
+    def plot_diffusion(self, X, P, frame, frame_pred):
+        num_surf = len(X)
+        specs_r = [{'type': 'scatter3d'} for _ in range(num_surf)]
+
+        fig = make_subplots(
+            rows=1, cols=num_surf,
+            specs=[specs_r]
+        )
+
+        for idx, x in zip(range(num_surf), X):
+            # First scatter plot
+            fig.add_trace(
+                go.Scatter3d(x=x[:,0], y=x[:,1], z=x[:,2], mode='markers', marker=dict(
+                    size=2,
+                    color=x[:,2],                # set color to an array/list of desired values
+                    colorscale='Viridis',   # choose a colorscale
+                    opacity=0.8
+                )),
+                row=1, col=idx+1
+            )
+
+        if P is not None:
+            for idx, p in zip(range(num_surf), P):
+                fig.add_trace(
+                    go.Scatter3d(x=p[:,0], y=p[:,1], z=p[:,2], mode='markers', marker=dict(
+                        size=4,
+                        color='red',                # set color to an array/list of desired values
+                        opacity=1,
+                    )),
+                    row=1, col=idx+1
+                )
+
+        if frame is not None:
+            for idx, f in zip(range(num_surf), frame):
+
+                origin = P[idx,0]
+
+                for i in range(3):
+                    fig.add_trace(go.Scatter3d(
+                        x=[origin[0], origin[0] + f[i, 0]],
+                        y=[origin[1], origin[1] + f[i, 1]],
+                        z=[origin[2], origin[2] + f[i, 2]],
+                        mode='lines',
+                        line=dict(color='cyan', width=8),
+                    ), 
+                    row=1, col=idx+1)
+
+        if frame_pred is not None:
+            for idx, f in zip(range(num_surf), frame_pred):
+
+                origin = P[idx,0]     
+
+                for i in range(3):
+                    fig.add_trace(go.Scatter3d(
+                        x=[origin[0], origin[0] + f[i, 0]],
+                        y=[origin[1], origin[1] + f[i, 1]],
+                        z=[origin[2], origin[2] + f[i, 2]],
+                        mode='lines',
+                        line=dict(color='magenta', width=8),
+                    ), 
+                    row=1, col=idx+1)
+
+        return fig
+
+class USSegLoggerNeptune(Callback):
+    # This callback logs images for visualization during training, with the ability to log images to the Neptune logging system for easy monitoring and analysis
+    def __init__(self, num_images=5, log_steps=10, num_steps=5):
+        self.log_steps = log_steps
+        self.num_images = num_images
+        self.num_steps = num_steps
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx): 
+        # This function is called at the end of each training batch
+        if pl_module.global_step % self.log_steps == 0:
+            
+            pl_module.eval()
+            with torch.no_grad():
+
+                X, X_origin, X_end, X_PC = batch
+                X = X[0:1]
+                X_origin = X_origin[0:1] 
+                X_end = X_end[0:1]
+                X_PC = X_PC[0:1]
+
+                x, y, sweeps_tags = pl_module.volume_sampling(X, X_origin, X_end)
+                x = x.squeeze(1)
+                x_hat = pl_module(x)
+                x_hat = torch.argmax(x_hat, dim=1, keepdim=True)
+
+                r_idx = torch.randperm(x.shape[2])[:self.num_images]
+                
+                x = x[:,:,r_idx, :, :]
+                x_hat = x_hat[:,:,r_idx, :, :]
+                y = y[:,:,r_idx, :, :]
+
+                x = x[0][0].cpu().numpy()
+                x_hat = x_hat[0][0].cpu().numpy()
+                y = y[0][0].cpu().numpy()
+
+                fig = self.plot_seq(x, x_hat, y)
+                trainer.logger.experiment["images/batch"].upload(fig)
+                
+
+    def plot_seq(self, x, x_hat, y):
+        
+        T, H, W = x.shape
+        # Create subplot figure with 1 row and 2 columns
+        fig = make_subplots(rows=1, cols=3, subplot_titles=["x", "x_hat", "y"])
+
+        # Initial frame
+        fig.add_trace(go.Heatmap(z=x[0], colorscale = 'gray'), row=1, col=1)
+        fig.add_trace(go.Heatmap(z=x_hat[0], coloraxis = 'coloraxis'), row=1, col=2)
+        fig.add_trace(go.Heatmap(z=y[0], coloraxis = 'coloraxis'), row=1, col=3)
+
+        # Add animation frames
+        frames = []
+        for i in range(T):
+            frames.append(go.Frame(
+                data=[
+                    go.Heatmap(z=x[i], colorscale = 'gray'),
+                    go.Heatmap(z=x_hat[i], coloraxis = 'coloraxis'),
+                    go.Heatmap(z=y[i], coloraxis = 'coloraxis')
+                ],
+                name=str(i)
+            ))
+
+        fig.frames = frames
+
+        # Update layout with animation settings and fixed aspect ratio
+        fig.update_layout(
+            autosize=False,
+            width=1800,  # Adjust width as needed
+            height=600,  # Adjust height according to aspect ratio
+            coloraxis={"colorscale": "jet",
+                    "cmin": 0,  # Set global min value for color scale
+                    "cmax": 11},   # Set global max value for color scale},  # Set colorscale for the shared coloraxis
+            updatemenus=[{
+                "buttons": [
+                    {
+                        "args": [None, {"frame": {"duration": 500, "redraw": True},
+                                        "fromcurrent": True, "mode": "immediate"}],
+                        "label": "Play",
+                        "method": "animate"
+                    },
+                    {
+                        "args": [[None], {"frame": {"duration": 0, "redraw": False},
+                                        "mode": "immediate"}],
+                        "label": "Pause",
+                        "method": "animate"
+                    }
+                ],
+                "direction": "left",
+                "pad": {"r": 10, "t": 87},
+                "showactive": False,
+                "type": "buttons",
+                "x": 0.1,
+                "xanchor": "right",
+                "y": 0,
+                "yanchor": "top"
+            }],
+            sliders=[{
+                "steps": [
+                    {
+                        "args": [[str(k)], {"frame": {"duration": 300, "redraw": True},
+                                            "mode": "immediate"}],
+                        "label": str(k),
+                        "method": "animate"
+                    } for k in range(x.shape[0])
+                ],
+                "active": 0,
+                "yanchor": "top",
+                "xanchor": "left",
+                "currentvalue": {
+                    "font": {"size": 20},
+                    "prefix": "Frame:",
+                    "visible": True,
+                    "xanchor": "right"
+                },
+                "transition": {"duration": 300, "easing": "cubic-in-out"}
+            }]
+        )
         return fig

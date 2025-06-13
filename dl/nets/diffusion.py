@@ -17,7 +17,7 @@ from generative.networks.schedulers import DDPMScheduler, DDIMScheduler
 from generative.inferers import LatentDiffusionInferer, DiffusionInferer
 from generative.networks.nets import PatchDiscriminator
 
-from nets.lotus import UltrasoundRendering, UltrasoundRenderingLinear
+from .lotus import UltrasoundRendering, UltrasoundRenderingLinear
 import numpy as np 
 from generative.losses import PatchAdversarialLoss, PerceptualLoss
 from torchvision import transforms as T

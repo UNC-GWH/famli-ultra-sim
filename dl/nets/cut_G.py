@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from nets.layers import ResnetBlock, Downsample, Upsample, ConditionalResnetBlock, ConditionalInstanceNorm2d, FiLM
+from .layers import ResnetBlock, Downsample, Upsample, ConditionalResnetBlock, ConditionalInstanceNorm2d, FiLM
 
 class Generator(nn.Module):
     def __init__(self, in_channels=1, features=64, residuals=9, conv3d=False):

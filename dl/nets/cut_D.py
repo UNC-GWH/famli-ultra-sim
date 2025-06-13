@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from nets.layers import Downsample, ConditionalResnetBlock, ConditionalInstanceNorm2d, FiLM
+from .layers import Downsample, ConditionalResnetBlock, ConditionalInstanceNorm2d, FiLM
 
 class Discriminator(nn.Module):
     def __init__(self, in_channels=1, features=64, out_features=1, conv3d=False):

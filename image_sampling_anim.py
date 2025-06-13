@@ -31,8 +31,8 @@ def main(args):
     vs.init_probe_params_from_pos(args.probe_paths)
     vs = vs.cuda()
 
-    diffusor = sitk.ReadImage(os.path.join(mount_point, 'breech/frame_0001.nrrd'))
-    diffusor_t = torch.tensor(sitk.GetArrayFromImage(diffusor).astype(int)).permute(2, 1, 0)
+    diffusor = sitk.ReadImage(args.img)
+    diffusor_t = torch.tensor(sitk.GetArrayFromImage(diffusor).astype(int))
     diffusor_size = torch.tensor(diffusor.GetSize())
     diffusor_spacing = torch.tensor(diffusor.GetSpacing())
     diffusor_origin = torch.tensor(diffusor.GetOrigin())
@@ -51,7 +51,7 @@ def main(args):
 
     for tag in vs.tags:
 
-        sampled_sweep_simu_t = vs.get_sweep(diffusor_batch_t.to(torch.float).cuda(), diffusor_origin_batch.to(torch.float).cuda(), diffusor_end_batch.to(torch.float).cuda(), tag, use_random=False, simulator=None)
+        sampled_sweep_simu_t = vs.get_sweep(diffusor_batch_t.to(torch.float).cuda(), diffusor_origin_batch.to(torch.float).cuda(), diffusor_end_batch.to(torch.float).cuda(), tag, use_random=False, simulator=simulator)
         sampled_sweep_simu_np = sampled_sweep_simu_t.squeeze().cpu().numpy()
 
         #Save image

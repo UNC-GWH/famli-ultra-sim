@@ -7,6 +7,7 @@ from pathlib import Path
 import argparse 
     
 from multiprocessing import Pool, cpu_count
+import time
 
 class BlenderMeshToImage():
     def __init__(self, dimensions):
@@ -37,14 +38,13 @@ class BlenderMeshToImage():
         surf = reader.GetOutput()
         bounds = np.array(surf.GetBounds())
 
-
+        
         dimensions = np.array(self.dimensions)
         spacing = np.abs((bounds[[0,2,4]] - bounds[[1,3,5]]))/dimensions
         
         origin = np.min([bounds[[0,2,4]], bounds[[1,3,5]]], axis=0)
 
         print(dimensions, spacing, origin)
-        # print(dimensions, spacing, origin)
 
         # Create a binary image with the desired spacing, dimensions, and origin
         white_image = vtk.vtkImageData()
@@ -100,7 +100,9 @@ if __name__ == "__main__":
 
     parser.add_argument('--dir', type=str, help='Input dir with mesh files', required=True)
     parser.add_argument('--ext', type=str, help='Input extension type', default='.stl')
+    
     parser.add_argument('--dimensions', type=int, help='Output dimension', nargs='+', default=[256, 256, 256])
+    
     parser.add_argument('--ow', type=int, help='Overwrite', default=0)
     parser.add_argument('--skip', type=str, nargs="+", help='Skip the following shapes', default=["simulation_fov", "ultrasound_grid"])
     parser.add_argument('--n_proc', type=int, help='Max number of processes', default=None)
@@ -126,6 +128,11 @@ if __name__ == "__main__":
         if not os.path.exists(output_image_filename):
             mesh_fn.append((input_mesh_filename, output_image_filename))
 
+    start_time = time.time()
+
     cpu_count = args.n_proc if args.n_proc is not None else cpu_count()
     with Pool(cpu_count) as p:
         p.map(BlenderMeshToImage(args.dimensions), mesh_fn)
+
+    end_time = time.time()
+    print(f"Processed {len(mesh_fn)} files in {end_time - start_time:.2f} seconds.")

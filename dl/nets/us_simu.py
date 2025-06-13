@@ -155,7 +155,7 @@ class VolumeSamplingBlindSweep(nn.Module):
             self.register_buffer(f'probe_origins_{tag}', torch.tensor(probe_origins, dtype=torch.float32, requires_grad=False))
 
             probe_directions = np.load(os.path.join(probe_paths, tag + "_rotations.npy"))
-            self.register_buffer(f'probe_directions_{tag}', torch.tensor(probe_directions, dtype=torch.float32, requires_grad=False).transpose(1, 2))
+            self.register_buffer(f'probe_directions_{tag}', torch.tensor(probe_directions, dtype=torch.float32, requires_grad=False))
             
 
     def transform_simulation_ultrasound_plane_tag(self, tag, probe_origin_rand=None, probe_direction_rand=None, use_random=False):
@@ -204,7 +204,7 @@ class VolumeSamplingBlindSweep(nn.Module):
             probe_origin = probe_origin + probe_origin_single_rand
             probe_direction = torch.matmul(probe_direction, probe_direction_single_rand)
 
-        simulation_ultrasound_plane_mesh_grid_transformed = torch.matmul(self.simulation_ultrasound_plane_mesh_grid, probe_direction) + probe_origin
+        simulation_ultrasound_plane_mesh_grid_transformed = torch.matmul(self.simulation_ultrasound_plane_mesh_grid, probe_direction.T) + probe_origin
         return simulation_ultrasound_plane_mesh_grid_transformed.to(torch.float32)
     
     def diffusor_sampling_tag(self, tag, diffusor_t, diffusor_origin, diffusor_end, probe_origin_rand=None, probe_direction_rand=None, use_random=False):

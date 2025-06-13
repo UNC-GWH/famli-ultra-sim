@@ -5,6 +5,10 @@ import torch.nn.functional as F
 from torchvision import transforms as T
 from . import cut
 from . import diffusion
+from .lotus import UltrasoundRenderingLinear
+import argparse
+import numpy as np
+import pandas as pd
 
 class MergedCut3(nn.Module):
     def __init__(self):
@@ -795,4 +799,18 @@ class MergedGuidedLabel11(MergedLinearLabel11):
         if mask_fan is None:
             mask_fan = self.USR.mask_fan
         X, z_mu, z_sigma = self.au(X)
+        return X*mask_fan
+
+class MergedGuidedAnim(MergedLinearLabel11):
+    def __init__(self):
+        super().__init__()
+
+        self.USR = UltrasoundRenderingLinear(num_labels=333, grid_w=256, grid_h=256, center_x=128.0, center_y=-30.0, r1=20.0, r2=215.0, theta=np.pi/4.0)
+        df = pd.read_csv('/mnt/raid/C1_ML_Analysis/simulated_data_export/animation_export/shapes_intensity_map_nrrd.csv')
+        self.USR.init_params(torch.tensor(df['mean']), torch.tensor(df['stddev']))
+
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+        X = self.USR(X, grid, inverse_grid, mask_fan)
+        if mask_fan is None:
+            mask_fan = self.USR.mask_fan
         return X*mask_fan

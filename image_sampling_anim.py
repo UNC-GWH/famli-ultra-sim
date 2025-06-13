@@ -44,7 +44,7 @@ def main(args):
     diffusor_end_batch = diffusor_end[None, :].cuda()
 
     
-    simulator = us_simulation_jit.MergedLinearLabel11PassThrough()
+    simulator = us_simulation_jit.MergedGuidedAnim()
     simulator = simulator.cuda()
     grid, inverse_grid, mask_fan = simulator.init_grids(256, 256, 128.0, -30.0, 20.0, 215.0, 0.7853981633974483) # w, h, center_x, center_y, r1, r2, theta
     simulator = TimeDistributed(simulator, time_dim=2).eval().cuda()

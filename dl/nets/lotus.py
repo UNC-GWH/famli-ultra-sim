@@ -548,9 +548,9 @@ class UltrasoundRenderingLinear(LightningModule):
         hparams_group.add_argument('--grid_h', help='Grid size for the simulation', type=int, default=256)
         hparams_group.add_argument('--center_x', help='Position of the circle that creates the transducer', type=float, default=128.0)
         hparams_group.add_argument('--center_y', help='Position of the circle that creates the transducer', type=float, default=-30.0)
-        hparams_group.add_argument('--r1', help='Radius of first circle', type=float, default=20.0)
-        hparams_group.add_argument('--r2', help='Radius of second circle', type=float, default=215.0)
-        hparams_group.add_argument('--theta', help='Aperture angle of transducer', type=float, default=np.pi/4.0)        
+        hparams_group.add_argument('--r1', help='Radius of first circle', type=float, default=10.0)
+        hparams_group.add_argument('--r2', help='Radius of second circle', type=float, default=225.0)
+        hparams_group.add_argument('--theta', help='Aperture angle of transducer', type=float, default=np.pi/4.75)
 
         return parent_parser
 

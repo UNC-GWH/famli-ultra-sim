@@ -814,3 +814,14 @@ class MergedGuidedAnim(MergedLinearLabel11):
         if mask_fan is None:
             mask_fan = self.USR.mask_fan
         return X*mask_fan
+
+class CutLabel3D(MergedGuidedAnim):
+    def __init__(self):
+        super().__init__()
+        self.model_cut = cut.CutLabel.load_from_checkpoint("/mnt/raid/C1_ML_Analysis/train_output/Cut3d/0.1", num_labels=12)
+        self.model_cut.freeze()
+        self.USR = self.model_cut.USR
+        self.G = self.model_cut.G
+        # model_fn = "/mnt/raid/C1_ML_Analysis/train_output/diffusionAE/extract_frames_Dataset_C_masked_resampled_256_spc075_wscores_meta_BPD01_MACFL025-7mo-9mo/v0.4/epoch=72-val_loss=0.01.ckpt"
+        # self.AE = diffusion.AutoEncoderKL.load_from_checkpoint(model_fn)
+    

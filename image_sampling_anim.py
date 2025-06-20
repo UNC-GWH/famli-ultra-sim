@@ -5,13 +5,8 @@ import numpy as np
 import SimpleITK as sitk
 
 import torch
-from torch import nn
-from torch.nn import functional as F
-from torchvision import transforms
-
 import glob 
 
-import dl.transforms.ultrasound_transforms as ultrasound_transforms
 import dl.nets.us_simulation_jit as us_simulation_jit
 import dl.nets.us_simu as us_simu
 
@@ -69,9 +64,12 @@ if __name__ == "__main__":
     parser.add_argument('--probe_paths', type=str, required=True, help='Path to the probe paths file')
     parser.add_argument('--out', type=str, required=True, help='Path to the output directory to save the sweeps')
     parser.add_argument('--mount_point', type=str, default='/mnt/raid/C1_ML_Analysis/simulated_data_export/animation_export/', help='Mount point for the simulation assets')
+    parser.add_argument('--ow', type=int, default=0, help='Overwrite existing files: 0 for no, 1 for yes')
     
     args = parser.parse_args()
-    mount_point = args.mount_point
+    if args.ow == 0 and os.path.exists(args.out):
+        print(f"Output directory {args.out} already exists. Use --ow 1 to overwrite.")
+        exit(1)
     main(args)
 
 

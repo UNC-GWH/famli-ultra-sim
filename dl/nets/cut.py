@@ -1695,7 +1695,7 @@ class CutLabel(LightningModule):
         self.automatic_optimization = False
 
         self.diff_transform = ust.DiffusorTrainTransform()
-        self.resize_t = ust.Resize3D((self.hparams.num_frames, 64, 64), mode='nearest')
+        self.resize_t = ust.Resize3D((self.hparams.num_frames, 128, 128), mode='nearest')
 
 
     @staticmethod

@@ -796,3 +796,18 @@ class MergedGuidedLabel11(MergedLinearLabel11):
             mask_fan = self.USR.mask_fan
         X, z_mu, z_sigma = self.au(X)
         return X*mask_fan
+    
+class MergedLinearLabel11WOG(MergedLinearLabel11):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, X, grid=None, inverse_grid=None, mask_fan=None):
+        X = self.USR(X, grid, inverse_grid, mask_fan)
+
+        if mask_fan is None:
+            mask_fan = self.USR.mask_fan
+            
+        X = self.transform_us(X*mask_fan)
+
+
+

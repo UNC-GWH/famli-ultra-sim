@@ -2163,6 +2163,7 @@ class USButterflyBlindSweepDataModule(LightningDataModule):
         group.add_argument('--csv_valid', type=str, default=None, required=True)
         group.add_argument('--mount_point', type=str, default="./")
         group.add_argument('--drop_last', type=int, default=0)
+        group.add_argument('--collate_batch', type=int, default=0)
 
         return parent_parser
         
@@ -2172,10 +2173,13 @@ class USButterflyBlindSweepDataModule(LightningDataModule):
         self.train_ds = USButterflyBlindSweep(self.df_train, self.hparams.mount_point, img_column=self.hparams.img_column, transform=self.train_transform, num_frames=self.hparams.num_frames, continous_frames=True)
         self.val_ds = USButterflyBlindSweep(self.df_val, self.hparams.mount_point, img_column=self.hparams.img_column, transform=self.valid_transform, num_frames=self.hparams.num_frames, continous_frames=True)
     
+    def collate_batch(self, batch):
+        return torch.cat(batch, dim=1).permute(1, 0, 2, 3) # Change to (B, C, H, W)
+
     def train_dataloader(self):
-        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, persistent_workers=True, pin_memory=True, drop_last=bool(self.hparams.drop_last), shuffle=True, prefetch_factor=2)
+        return DataLoader(self.train_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, persistent_workers=True, pin_memory=True, drop_last=bool(self.hparams.drop_last), shuffle=True, prefetch_factor=2, collate_fn=self.collate_batch if self.hparams.collate_batch else None)
     def val_dataloader(self):
-        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=bool(self.hparams.drop_last), prefetch_factor=2)
+        return DataLoader(self.val_ds, batch_size=self.hparams.batch_size, num_workers=self.hparams.num_workers, drop_last=bool(self.hparams.drop_last), prefetch_factor=2, collate_fn=self.collate_batch if self.hparams.collate_batch else None)
     
 class Cut3DDataModule(LightningDataModule):
     def __init__(self, **kwargs):
@@ -2197,7 +2201,7 @@ class Cut3DDataModule(LightningDataModule):
         group = parent_parser.add_argument_group("Cut3DDataModule")
         group.add_argument('--batch_size', type=int, default=2)
         group.add_argument('--num_workers', type=int, default=6)
-        group.add_argument('--num_frames', type=int, default=64)        
+        group.add_argument('--num_frames', type=int, default=128)        
         group.add_argument('--img_column_diffusor', type=str, default="img")
         group.add_argument('--csv_train_diffusor', type=str, default=None, required=True)
         group.add_argument('--csv_valid_diffusor', type=str, default=None, required=True)

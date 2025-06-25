@@ -24,6 +24,11 @@ import numpy as np
 import pandas as pd
 import SimpleITK as sitk
 
+from generative.networks import nets
+from generative.networks.schedulers import DDPMScheduler, DDIMScheduler
+from generative.inferers import DiffusionInferer
+
+
 class CutG(LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
@@ -1763,7 +1768,7 @@ class CutLabel(LightningModule):
         self.USR.inverse_grid = self.USR.normalize_grid(inverse_grid)
         self.USR.mask_fan = mask
 
-        self.transform_us = T.Compose([T.Pad((0, padding, 0, 0)), T.CenterCrop(center_crop)])
+        self.USR.transform_us = T.Compose([T.Pad((0, padding, 0, 0)), T.CenterCrop(center_crop)])
 
     def forward(self, X):
         return self.G(X)
@@ -1861,15 +1866,38 @@ class CutLabel(LightningModule):
             X_sweeps = torch.cat(X_sweeps, dim=1).to(torch.float32)
             X_sweeps_tags = torch.tensor(X_sweeps_tags, device=self.device)
 
-            return X_sweeps/255.0, X_sweeps_tags
+            return self.add_speckle(X_sweeps/255.0), X_sweeps_tags
+        
+    def add_speckle(self, img, mean=1.0, std=0.2):        
+        noise = torch.normal(mean=mean, std=std, size=img.shape, device=img.device)
+        return torch.clamp(img * noise, min=0.0, max=1.0)
         
     def adjust_contrast(self, x, factor=1.0):        
         mean = x.mean()
         return torch.clamp((x - mean) * factor + mean, min=0.0, max=1.0)
+
+    def adjust_gain(self, x, factor=1.0):
+        return torch.clamp(x * factor, min=0.0, max=1.0)
+
+    def adjust_depth_gain(self, x, base_gain=1.0, slope=0.01):
+        # x: [B, C, D, H, W]
+        B, C, D, H, W = x.shape
+        depth_profile = base_gain + slope * torch.linspace(0, 1, H, device=x.device).view(1, 1, 1, H, 1)
+        return torch.clamp(x * depth_profile, min=0.0, max=1.0)
     
     def random_contrast(self, x, contrast_range=(0.5, 1.5)):        
         factor = torch.empty(1).uniform_(*contrast_range).item()
         return self.adjust_contrast(x, factor)
+    
+    def random_gain(self, x, gain_range=(0.5, 2.0)):
+        factor = torch.empty(1).uniform_(*gain_range).item()
+        return self.adjust_gain(x, factor)
+    
+    def random_depth_gain(self, x, base_gain_range=(0.8, 1.2), slope_range=(0.005, 0.03)):
+        B, C, D, H, W = x.shape
+        base_gain = torch.empty(1).uniform_(*base_gain_range).item()
+        slope = torch.empty(1).uniform_(*slope_range).item()
+        return self.adjust_depth_gain(x, base_gain=base_gain, slope=slope)
 
     def training_step(self, train_batch, batch_idx):
 
@@ -1883,7 +1911,10 @@ class CutLabel(LightningModule):
         X, tags = self.volume_sampling(diff_t.long(), self.diffusor_origin, self.diffusor_end, use_random=True)
         X = X[0]
         X = self.resize_t(X)
+        
         X = self.random_contrast(X)
+        X = self.random_depth_gain(X)
+        X = self.random_gain(X)
 
         Y_fake = self.G(X)
 
@@ -1908,7 +1939,6 @@ class CutLabel(LightningModule):
         opt_gen.step()
         opt_head.step()
 
-        
         self.log("train_loss_g", loss_g)
         self.log("train_loss_d", loss_d)
 
@@ -1978,3 +2008,103 @@ class CutLabel(LightningModule):
         out = torch.mm(feat_q, feat_k.transpose(1, 0)) / self.hparams.temperature
         loss = self.cross_entropy_loss(out, torch.arange(0, out.size(0), dtype=torch.long, device=self.device))
         return loss
+    
+
+class DDPMPL3D(LightningModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        
+        self.model = nets.DiffusionModelUNet(
+            spatial_dims=3,
+            in_channels=self.hparams.in_channels,
+            out_channels=self.hparams.out_channels,
+            num_channels=self.hparams.num_channels,
+            norm_num_groups=self.hparams.norm_num_groups,
+            attention_levels=self.hparams.attention_levels,
+            num_head_channels=self.hparams.num_head_channels,
+            num_res_blocks=self.hparams.num_res_blocks,
+        )
+
+        self.scheduler = DDPMScheduler(num_train_timesteps=self.hparams.num_train_timesteps)
+        self.inferer = DiffusionInferer(self.scheduler)
+
+        self.resize_t = ust.Resize3D(self.hparams.resize, mode='nearest')        
+
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(),
+                                lr=self.hparams.lr,
+                                betas=self.hparams.betas,
+                                weight_decay=self.hparams.weight_decay)
+        
+        return optimizer
+    
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        hparams_group = parent_parser.add_argument_group('3D Diffusion')
+        hparams_group.add_argument('--lr', '--learning-rate', default=5e-5, type=float, help='Learning rate')
+        hparams_group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=0.01)
+        hparams_group.add_argument('--betas', help='Betas for optimizer', nargs='+', type=float, default=(0.9, 0.999))    
+        hparams_group.add_argument('--in_channels', help='Number of input channels', type=int, default=1)
+        hparams_group.add_argument('--out_channels', help='Number of output channels', type=int, default=1)
+        hparams_group.add_argument('--num_channels', help='Number of channels per level in the unet for the diffusion model', nargs='+', type=int, default=(32, 64, 128, 256))
+        hparams_group.add_argument('--norm_num_groups', help='Norm num groups', type=int, default=32)
+        hparams_group.add_argument('--attention_levels', help='Attention levels for the diffusion model', nargs='+', type=bool, default=(False, False, False, True))
+        hparams_group.add_argument('--num_head_channels', help='Number of head channels for the diffusion model', nargs='+', type=int, default=(0, 0, 0, 8))
+        hparams_group.add_argument('--num_res_blocks', help='Number of residual blocks', type=int, default=2)
+        hparams_group.add_argument('--resize', help='Resize the input image', type=int, nargs='+', default=(-1, 128, 128))
+
+        hparams_group.add_argument('--num_train_timesteps', help='Number of training timesteps for the diffusion model', type=int, default=1000)
+        
+        return parent_parser
+    
+
+    def training_step(self, train_batch, batch_idx):
+
+        images = train_batch
+        images = self.resize_t(images)
+
+        noise = torch.randn_like(images)
+
+        # Create timesteps
+        timesteps = torch.randint(
+            0, self.inferer.scheduler.num_train_timesteps, (images.shape[0],), device=self.device
+        ).long()
+
+        # Get model prediction
+        noise_pred = self.inferer(inputs=images, diffusion_model=self.model, noise=noise, timesteps=timesteps)
+
+        loss = F.mse_loss(noise_pred.float(), noise.float())
+
+        self.log("train_loss", loss)
+
+        return loss
+
+    def validation_step(self, val_batch, batch_idx):
+
+        images = val_batch
+        images = self.resize_t(images)
+
+        noise = torch.randn_like(images)
+        # Create timesteps
+        timesteps = torch.randint(
+            0, self.inferer.scheduler.num_train_timesteps, (images.shape[0],), device=self.device
+        ).long()
+
+        # Get model prediction
+        noise_pred = self.inferer(inputs=images, diffusion_model=self.model, noise=noise, timesteps=timesteps)
+
+        loss = F.mse_loss(noise_pred.float(), noise.float())
+
+
+        self.log("val_loss", loss, sync_dist=True)
+
+
+    def forward(self, x, num_inference_steps=50):
+
+        noise = torch.randn_like(x).to(self.device)
+
+        self.scheduler.set_timesteps(num_inference_steps=num_inference_steps)
+
+        return self.inferer.sample(input_noise=noise, diffusion_model=self.model, scheduler=self.scheduler, verbose=False)

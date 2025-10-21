@@ -215,37 +215,18 @@ class DiffusionImageLogger(Callback):
                 
 
 class DiffusionImageLoggerNeptune(Callback):
-    def __init__(self, num_images=16, log_steps=100):
+    def __init__(self, num_images=1, log_steps=100, *args, **kwargs):
         self.log_steps = log_steps
         self.num_images = num_images
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, unused=0):
         
         if batch_idx % self.log_steps == 0:
             with torch.no_grad():
-                x = batch
 
-                max_num_image = min(x.shape[0], self.num_images)
-
-
-                x = x[0:max_num_image]
-
-                grid_img1 = torchvision.utils.make_grid(x[0:max_num_image])
-                x_ = pl_module(x)
-
-                if isinstance(x_, tuple):
-                    if len(x_) == 2:
-                        x_hat, _ = x_
-                    else:
-                        x_hat, z_mu, z_sigma = x_
-                else:
-                    x_hat = x_
-
-
-                x = x.clip(0, 1)
-                x_hat = x_hat.clip(0,1)
-
-                grid_x_hat = torchvision.utils.make_grid(x_hat[0:max_num_image])
+                x = batch 
                 
+                grid_img1 = torchvision.utils.make_grid(x[0:self.num_images])
+
                 # Generate figure                
                 fig = plt.figure(figsize=(7, 9))
                 ax = plt.imshow(grid_img1.permute(1, 2, 0).cpu().numpy())
@@ -253,36 +234,14 @@ class DiffusionImageLoggerNeptune(Callback):
                 trainer.logger.experiment["images/x"].upload(fig)
                 plt.close()
 
+                x_hat = pl_module.sample(num_samples=self.num_images)
+                x_hat = x_hat.clip(0, 1)
+                grid_x_hat = torchvision.utils.make_grid(x_hat[0:self.num_images])
                 # Generate figure
                 fig = plt.figure(figsize=(7, 9))
                 ax = plt.imshow(grid_x_hat.permute(1, 2, 0).cpu().numpy())
-                # trainer.logger.experiment.add_image('img1', grid_img1.cpu().numpy(), 0)
                 trainer.logger.experiment["images/x_hat"].upload(fig)
                 plt.close()
-
-
-                if hasattr(pl_module, 'autoencoderkl'):
-                    z_mu, z_sigma = pl_module.autoencoderkl.encode(x)
-                    z_mu = z_mu.detach()
-                    z_sigma = z_sigma.detach()
-                    z_vae = pl_module.autoencoderkl.sampling(z_mu, z_sigma)
-
-                    z_vae = z_vae.clip(0,1)
-                    z_mu = z_mu.clip(0, 1)
-
-                    grid_x_z_mu = torchvision.utils.make_grid(z_mu[0:max_num_image])
-
-                    fig = plt.figure(figsize=(7, 9))
-                    ax = plt.imshow(grid_x_z_mu.permute(1, 2, 0).cpu().numpy())
-                    trainer.logger.experiment["images/z_mu"].upload(fig)
-                    plt.close()
-
-                    grid_x_z_vae = torchvision.utils.make_grid(z_vae[0:max_num_image])
-
-                    fig = plt.figure(figsize=(7, 9))
-                    ax = plt.imshow(grid_x_z_vae.permute(1, 2, 0).cpu().numpy())
-                    trainer.logger.experiment["images/z_vae"].upload(fig)
-                    plt.close()
                 
 
 
@@ -2384,3 +2343,90 @@ class Cut3DLogger(Callback):
                 ax = plt.imshow(grid_y.permute(1, 2, 0).cpu().numpy())
                 trainer.logger.experiment["images/y"].upload(fig)
                 plt.close()
+
+class DDPML3DLogger(Callback):
+    def __init__(self, num_images=1, log_steps=1605, *args, **kwargs):
+        self.log_steps = log_steps
+        self.num_images = num_images
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, unused=0):
+        
+        if batch_idx % self.log_steps == 0:
+            with torch.no_grad():
+
+                Y = batch
+                Y = pl_module.resize_t(Y)
+
+                max_num_image = min(Y.shape[0], self.num_images)
+                Y = Y[0:max_num_image]
+
+                Y_fake = pl_module(Y)
+                Y_fake = torch.clip(Y_fake, min=0.0, max=1.0)                
+
+                grid_y_fake = torchvision.utils.make_grid(Y_fake[0].permute(1, 0, 2, 3), nrow=8)
+                fig = plt.figure(figsize=(7, 9))
+                ax = plt.imshow(grid_y_fake.permute(1, 2, 0).cpu().numpy())
+                trainer.logger.experiment["images/y_fake"].upload(fig)
+                plt.close()
+
+                grid_y = torchvision.utils.make_grid(Y[0].permute(1, 0, 2, 3), nrow=8)
+                fig = plt.figure(figsize=(7, 9))
+                ax = plt.imshow(grid_y.permute(1, 2, 0).cpu().numpy())
+                trainer.logger.experiment["images/y"].upload(fig)
+                plt.close()
+
+class USBabyFrameLoggerNeptune(Callback):
+    # This callback logs images for visualization during training, with the ability to log images to the Neptune logging system for easy monitoring and analysis
+    def __init__(self, num_surf=5, log_steps=10, num_steps=5):
+        self.log_steps = log_steps
+        self.num_surf = num_surf
+        self.num_steps = num_steps
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx): 
+        # This function is called at the end of each training batch
+        if pl_module.global_step % self.log_steps == 0:
+            
+            pl_module.eval()
+            with torch.no_grad():
+
+                X, tags, Y = batch
+
+                x_hat = pl_module(X, tags)           
+
+                fig = self.plot_diffusion(x_hat.cpu().numpy(), Y.cpu().numpy())
+                trainer.logger.experiment["images/batch"].upload(fig)
+                
+
+    def plot_diffusion(self, x_hat, Y):   
+
+        num_surf = len(x_hat)
+        specs_r = [{'type': 'scatter3d'} for _ in range(num_surf)]     
+
+        fig = make_subplots(
+            rows=1, cols=num_surf,
+            specs=[specs_r]
+        )
+
+        for idx, x, y in zip(range(num_surf), x_hat, Y):
+            origin = np.array([0, 0, 0])
+
+            for i in range(3):
+                fig.add_trace(go.Scatter3d(
+                    x=[origin[0], origin[0] + x[i, 0]],
+                    y=[origin[1], origin[1] + x[i, 1]],
+                    z=[origin[2], origin[2] + x[i, 2]],
+                    mode='lines',
+                    line=dict(color='cyan', width=8),
+                ), 
+                row=1, col=idx+1)
+
+            for i in range(3):
+                fig.add_trace(go.Scatter3d(
+                    x=[origin[0], origin[0] + y[i, 0]],
+                    y=[origin[1], origin[1] + y[i, 1]],
+                    z=[origin[2], origin[2] + y[i, 2]],
+                    mode='lines',
+                    line=dict(color='magenta', width=8),
+                ), 
+                row=1, col=idx+1)
+
+        return fig

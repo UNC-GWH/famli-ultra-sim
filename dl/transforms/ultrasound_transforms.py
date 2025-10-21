@@ -817,12 +817,12 @@ class RealUSEvalTransformsV2:
     
 
 class BlindSweepWTagTrainTransforms:
-    def __init__(self, height: int = 256):
+    def __init__(self, num_frames=128):
 
         # image augmentation functions
         self.train_transform = transforms.Compose(
             [
-                RandomFrames(num_frames=160),
+                RandomFrames(num_frames=num_frames),
                 EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),
                 ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0)                
             ]
@@ -832,12 +832,12 @@ class BlindSweepWTagTrainTransforms:
         return self.train_transform(inp)        
 
 class BlindSweepWTagEvalTransforms:
-    def __init__(self, height: int = 256):
+    def __init__(self, num_frames=128):
 
         self.eval_transform = transforms.Compose(
             [
-                RandomFrames(num_frames=160),
-                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),                
+                RandomFrames(num_frames=num_frames),
+                EnsureChannelFirst(strict_check=False, channel_dim='no_channel'),
                 ScaleIntensityRange(a_min=0.0, a_max=255.0, b_min=0.0, b_max=1.0)
             ]
         )
@@ -1305,6 +1305,37 @@ class Resize3D:
         resized = F.interpolate(x, size=(out_D, out_H, out_W), mode=self.mode)
         return resized
     
+class Resize2D:
+    def __init__(self, target_size, mode='nearest'):
+        """
+        Resize a 3D tensor [B, C, H, W] to the target size.
+
+        Args:
+            target_size (tuple): (H, W), use -1 to keep that dimension unchanged
+        """
+        assert len(target_size) == 2, "target_size must be a tuple of (H, W)"
+        self.target_size = target_size
+        self.mode = mode
+
+    def __call__(self, x):
+        """
+        Resize the input tensor.
+
+        Args:
+            x (torch.Tensor): [B, C, H, W]
+
+        Returns:
+            torch.Tensor: resized tensor [B, C, H', W']
+        """
+        assert x.ndim == 4, "Input tensor must have shape [B, C, H, W]"
+        B, C, H, W = x.shape
+        
+        out_H = self.target_size[0] if self.target_size[0] != -1 else H
+        out_W = self.target_size[1] if self.target_size[1] != -1 else W
+
+        resized = F.interpolate(x, size=(out_H, out_W), mode=self.mode)
+        return resized
+    
 class DiffusorTrainTransform:
     def __init__(self, target_size: tuple = (-1, -1, -1)):
 
@@ -1319,3 +1350,25 @@ class DiffusorTrainTransform:
 
     def __call__(self, inp):
         return self.train_transform(inp)
+    
+class GaussianNoise(nn.Module):    
+    def __init__(self, mean=0.0, std=0.05):
+        super(GaussianNoise, self).__init__()
+        self.mean = torch.tensor(mean)
+        self.std = torch.tensor(std)
+    def forward(self, x):
+        if self.training:
+            return x + torch.normal(mean=self.mean, std=self.std, size=x.size(), device=x.device)
+        return x
+
+class SaltAndPepper(nn.Module):    
+    def __init__(self, prob=0.05):
+        super(SaltAndPepper, self).__init__()
+        self.prob = prob
+    def __call__(self, x):
+        noise_tensor = torch.rand(x.shape)
+        salt = torch.max(x)
+        pepper = torch.min(x)
+        x[noise_tensor < self.prob/2] = salt
+        x[noise_tensor > 1-self.prob/2] = pepper
+        return x

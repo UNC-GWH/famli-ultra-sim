@@ -259,3 +259,226 @@ class ConditionalResnetBlock(nn.Module):
             else:
                 input = layer(input)
         return input
+    
+class ProjectionHead(nn.Module):
+    # Projection MLP
+    def __init__(self, input_dim=1280, hidden_dim=1280, output_dim=128, dropout=0.1, activation=nn.ReLU, bias=False):   
+        super().__init__()
+        self.output_dim = output_dim
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+
+        self.model = nn.Sequential(
+            nn.Linear(self.input_dim, self.hidden_dim, bias=bias),
+            activation(),
+            nn.Dropout(dropout),
+            nn.Linear(self.hidden_dim, self.output_dim, bias=bias),
+        )
+
+    def forward(self, x, x_=None):
+        if x_ is not None:
+            x = torch.cat([x, x_], dim=-1)
+        x = self.model(x)
+        return x
+    
+class SelfAttention(nn.Module):
+    def __init__(self, input_dim, hidden_dim, dim=1):
+        super().__init__()
+
+        self.W1 = nn.Linear(input_dim, hidden_dim)
+        self.V = nn.Linear(hidden_dim, 1)
+        self.Tanh = nn.Tanh()
+        self.Sigmoid = nn.Sigmoid()
+        self.dim = dim
+
+    def forward(self, query, values):
+        
+        score = self.Sigmoid(self.V(self.Tanh(self.W1(query))))
+
+        attention_weights = score/torch.sum(score, dim=self.dim, keepdim=True)
+
+        context_vector = attention_weights * values
+        context_vector = torch.sum(context_vector, dim=self.dim)
+
+        return context_vector, score
+    
+class AttentionChunk(nn.Module):
+    def __init__(self, input_dim, hidden_dim, chunks=16, time_dim=1):
+        super().__init__()
+        
+        self.attn = SelfAttention(input_dim, hidden_dim, dim=time_dim)
+        self.chunks = chunks
+        self.time_dim = time_dim
+
+    def forward(self, x):
+        
+        x_out = []
+        
+        for ch in torch.chunk(x, chunks=self.chunks, dim=self.time_dim): # Iterate in the time dimension and create chunks                                 
+            ch, ch_s = self.attn(ch, ch) # Compute average attention for each chunk
+            x_out.append(ch)
+        x_out = torch.stack(x_out, dim=self.time_dim)
+        
+        return x_out
+
+class ContextModulated(nn.Module):
+    def __init__(self, input_dim, output_dim, context_dim, activation=nn.LeakyReLU):
+        super(ContextModulated, self).__init__()
+
+        self.fc = nn.Linear(input_dim, output_dim)
+        
+        self.hyper_gate = nn.Linear(context_dim, output_dim)
+        self.hyper_bias = nn.Linear(context_dim, output_dim, bias=False)
+        self.sigmoid = nn.Sigmoid()
+        if activation is not None:
+            self.activation = activation()
+        else:
+            self.activation = nn.Identity()
+
+    def forward(self, x, context):
+        
+        
+        gate = self.sigmoid(self.hyper_gate(context))
+        bias = self.hyper_bias(context)        
+        
+        return self.activation(self.fc(x)*gate + bias)  
+    
+class MHAContextModulated(nn.Module):
+    def __init__(self, embed_dim, num_heads, output_dim, dropout=0.1, causal_mask=False, return_weights=False):
+        super(MHAContextModulated, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.causal_mask = causal_mask
+        self.return_weights = return_weights        
+
+        self.q = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.k = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.v = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, bias=False, batch_first=True)
+        self.context_modulated = ContextModulated(input_dim=embed_dim, output_dim=output_dim, context_dim=embed_dim)
+    
+    def forward(self, x):
+
+        q = self.q(x)
+        k = self.k(x)
+        v = self.v(x)
+
+        context, attn_output_weights = self.attention(q, k, v, is_causal=self.causal_mask)
+        x = self.context_modulated(x, context)
+        
+        if self.return_weights:
+            return x, attn_output_weights
+        return x
+    
+class MHABlock(nn.Module):
+    def __init__(self, embed_dim, num_heads, dropout=0.1, causal_mask=False, return_weights=False):
+        super(MHABlock, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.causal_mask = causal_mask
+        self.return_weights = return_weights        
+
+        self.q = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.k = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.v = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, bias=False, batch_first=True)
+
+    def generate_causal_mask(self, seq_len):
+        return torch.triu(torch.full((seq_len, seq_len), float("-inf")), diagonal=1)
+
+    
+    def forward(self, x):
+
+        q = self.q(x)
+        k = self.k(x)
+        v = self.v(x)
+
+        mask = None
+        if self.causal_mask:
+            mask = self.generate_causal_mask(q.size(1)).to(x.device)        
+
+        x, attn_output_weights = self.attention(q, k, v, attn_mask=mask, is_causal=self.causal_mask)
+
+        if self.return_weights:
+            return x, attn_output_weights
+        return x
+
+class MultiheadAttentionBlock(nn.Module):
+    def __init__(self, dim_in, dim_out, num_heads):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(embed_dim=dim_out, num_heads=num_heads, batch_first=True)
+        self.fc = nn.Sequential(
+            nn.Linear(dim_out, dim_out),
+            nn.ReLU(),
+            nn.Linear(dim_out, dim_out)
+        )
+        self.proj_q = nn.Linear(dim_in, dim_out)
+        self.proj_k = nn.Linear(dim_in, dim_out)
+        self.proj_v = nn.Linear(dim_in, dim_out)
+        self.ln1 = nn.LayerNorm(dim_out)
+        self.ln2 = nn.LayerNorm(dim_out)
+
+    def forward(self, Q, K):
+        Q_proj = self.proj_q(Q)
+        K_proj = self.proj_k(K)
+        V_proj = self.proj_v(K)
+
+        out, _ = self.attn(Q_proj, K_proj, V_proj)
+        out = self.ln1(out + Q_proj)
+        out = self.ln2(out + self.fc(out))
+        return out
+
+class InducedSetAttentionBlock(nn.Module):
+    def __init__(self, dim_in, dim_out, num_heads, num_induce):
+        super().__init__()
+        self.I = nn.Parameter(torch.randn(1, num_induce, dim_out))
+        self.mab1 = MultiheadAttentionBlock(dim_in, dim_out, num_heads)
+        self.mab2 = MultiheadAttentionBlock(dim_out, dim_out, num_heads)
+
+    def forward(self, X):
+        B = X.size(0)
+        I = self.I.expand(B, -1, -1)
+        H = self.mab1(I, X)
+        return self.mab2(X, H)
+
+class PoolingByMultiheadAttention(nn.Module):
+    def __init__(self, input_dim, num_heads, num_seeds=1):
+        super().__init__()
+        self.S = nn.Parameter(torch.randn(1, num_seeds, input_dim))
+        self.mab = MultiheadAttentionBlock(input_dim, input_dim, num_heads)
+
+    def forward(self, X):
+        B = X.size(0)
+        S = self.S.expand(B, -1, -1)
+        return self.mab(S, X)  # [B, num_seeds, D]
+
+class SetTransformerEncoder(nn.Module):
+    def __init__(self, input_dim, hidden_dim=128, num_heads=4, num_inds=16, num_seeds=1, num_isabs=2):
+        super().__init__()
+        layers = []
+        for _ in range(num_isabs):
+            layers.append(InducedSetAttentionBlock(input_dim if _ == 0 else hidden_dim, hidden_dim, num_heads, num_inds))
+        self.encoder = nn.Sequential(*layers)
+        self.pma = PoolingByMultiheadAttention(hidden_dim, num_heads, num_seeds)
+
+    def forward(self, X):
+        # X: [B, N, D_in]
+        out = self.encoder(X)
+        pooled = self.pma(out)  # [B, num_seeds, D]
+        return pooled.squeeze(1)  # [B, D]
+
+class OrientationPredictor(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        self.set_encoder = SetTransformerEncoder(input_dim=input_dim)
+        self.fc = nn.Sequential(
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 9)  # 3x3 matrix
+        )
+
+    def forward(self, x):
+        # x: [B, N, D]
+        z = self.set_encoder(x)         # [B, D]
+        R = self.fc(z).view(-1, 3, 3)   # [B, 3, 3]
+        return R

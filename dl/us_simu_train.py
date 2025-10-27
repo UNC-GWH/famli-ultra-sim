@@ -83,10 +83,11 @@ def main(args):
             api_key=os.environ['NEPTUNE_API_TOKEN'],
             log_model_checkpoints=False
         )
+
+    if args.logger:
         LOGGER = getattr(logger, args.logger)    
         image_logger = LOGGER(log_steps=args.image_log_steps)
         callbacks.append(image_logger)
-
     
     trainer = Trainer(
         logger=logger_neptune,
@@ -102,6 +103,7 @@ def main(args):
     )
     
     trainer.fit(model, datamodule=datamodule, ckpt_path=args.model)
+    trainer.test(model, datamodule=datamodule, ckpt_path='best')
 
 
 if __name__ == '__main__':
@@ -130,7 +132,7 @@ if __name__ == '__main__':
     
     log_group = parser.add_argument_group('Logging')
     log_group.add_argument('--neptune_tags', help='Neptune tags', type=str, nargs="+", default=None)
-    log_group.add_argument('--logger', help='Neptune tags', type=str, default="USAEReconstructionNeptuneLogger")
+    log_group.add_argument('--logger', help='Neptune tags', type=str, default=None)
     log_group.add_argument('--log_steps', help='Log every N steps', type=int, default=5)
     log_group.add_argument('--image_log_steps', help='Log images every N steps', type=int, default=50)
 

@@ -23,6 +23,8 @@ from .lotus import UltrasoundRenderingLinear
 from lightning.pytorch import LightningModule
 
 import monai 
+from torchmetrics import Accuracy, Precision, Recall, F1Score
+
 
 class VolumeSamplingBlindSweep(nn.Module):
     def __init__(self, mount_point="/mnt/raid/C1_ML_Analysis", simulation_fov_grid_size=[64, 128, 128], simulation_fov_fn='simulated_data_export/studies_merged/simulation_fov.stl', simulation_ultrasound_plane_fn='simulated_data_export/studies_merged/simulation_ultrasound_plane.stl', random_probe_pos_factor=0.0005, random_rotation_angles_ranges=((-10, 10), (-10, 10), (-10, 10))):
@@ -802,5 +804,186 @@ class USBabyFrame(LightningModule):
         
         x_hat = self.proj_final(z)
         x_hat = self.quaternion_to_rotation_matrix(x_hat)  
+
+        return x_hat
+    
+
+class PresentationModel(LightningModule):
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.save_hyperparameters()
+        
+        encoder = monai.networks.nets.EfficientNetBN('efficientnet-b0', pretrained=True, spatial_dims=2, in_channels=self.hparams.in_channels, num_classes=self.hparams.features)
+        self.encoder = TimeDistributed(encoder, time_dim=2)
+
+        p_encoding_z = torch.stack([self.positional_encoding(self.hparams.n_chunks, self.hparams.embed_dim, tag) for tag in self.hparams.tags])        
+        self.register_buffer("p_encoding_z", p_encoding_z)
+        
+        self.proj = ProjectionHead(input_dim=self.hparams.features, hidden_dim=self.hparams.features, output_dim=self.hparams.embed_dim, activation=nn.LeakyReLU)
+        self.attn_chunk = AttentionChunk(input_dim=self.hparams.embed_dim, hidden_dim=64, chunks=self.hparams.n_chunks, time_dim=1)
+        self.mha = MHABlock(embed_dim=self.hparams.embed_dim, num_heads=self.hparams.num_heads, dropout=self.hparams.dropout, causal_mask=True, return_weights=False)
+
+        self.dropout = nn.Dropout(self.hparams.dropout)
+        
+        self.attn = SelfAttention(input_dim=self.hparams.embed_dim, hidden_dim=64)
+        self.proj_final = ProjectionHead(input_dim=self.hparams.embed_dim, hidden_dim=64, output_dim=self.hparams.num_classes)
+
+        self.loss_fn = nn.CrossEntropyLoss()
+        self.accuracy = Accuracy(task='multiclass', num_classes=self.hparams.num_classes)
+        self.precision = Precision(task='multiclass', num_classes=self.hparams.num_classes)
+        self.recall = Recall(task='multiclass', num_classes=self.hparams.num_classes)
+        self.f1 = F1Score(task='multiclass', num_classes=self.hparams.num_classes)
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        group = parent_parser.add_argument_group("Fetal presentation classification")
+
+        group.add_argument("--lr", type=float, default=1e-4)
+        group.add_argument('--weight_decay', help='Weight decay for optimizer', type=float, default=1e-5)
+        
+        # Image Encoder parameters 
+        group.add_argument("--spatial_dims", type=int, default=2, help='Spatial dimensions for the encoder')
+        group.add_argument("--in_channels", type=int, default=1, help='Input channels for encoder')
+        group.add_argument("--features", type=int, default=1280, help='Number of output features for the encoder')        
+        group.add_argument("--n_chunks_e", type=int, default=2, help='Number of chunks in the encoder stage to reduce memory usage')
+        group.add_argument("--n_chunks", type=int, default=64, help='Number of outputs in the time dimension')
+        group.add_argument("--num_heads", type=int, default=8, help='Number of heads for multi_head attention')
+
+        # Encoder parameters for the diffusion model        
+        group.add_argument("--input_dim", type=int, default=3, help='Input dimension for the encoder')
+        group.add_argument("--embed_dim", type=int, default=128, help='Embedding dimension')
+        group.add_argument("--output_dim", type=int, default=3, help='Output dimension of the model')
+        group.add_argument("--dropout", type=float, default=0.25, help='Dropout rate')
+        group.add_argument("--tags", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7, 8], help='List of tags for the sequences')
+
+        group.add_argument("--num_classes", type=int, default=3, help='Number of output classes for the model')
+
+        return parent_parser
+    
+    def positional_encoding(self, seq_len: int, d_model: int, tag: int) -> torch.Tensor:
+        """
+        Sinusoidal positional encoding with tag-based offset.
+
+        Args:
+            seq_len (int): Sequence length.
+            d_model (int): Embedding dimension.
+            tag (int): Unique tag for the sequence.
+            device (str): Device to store the tensor.
+
+        Returns:
+            torch.Tensor: Positional encoding (seq_len, d_model).
+        """
+        pe = torch.zeros(seq_len, d_model)
+        
+        # Offset positions by a tag-dependent amount to make each sequence encoding unique
+        position = torch.arange(tag * seq_len, (tag + 1) * seq_len, dtype=torch.float32).unsqueeze(1)
+
+        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float32) * (-math.log(10000.0) / d_model))
+        
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        return pe
+    
+    def configure_optimizers(self):
+        optimizer = optim.AdamW(self.parameters(),
+                                lr=self.hparams.lr,
+                                weight_decay=self.hparams.weight_decay)
+        return optimizer
+    
+    def compute_loss(self, Y, X_hat, step="train", sync_dist=False):
+
+        loss = self.loss_fn(X_hat, Y)
+        
+        self.log(f"{step}_loss", loss, sync_dist=sync_dist)
+
+        batch_size = Y.size(0)
+        self.accuracy(X_hat, Y)
+        self.log(f"{step}_acc", self.accuracy, batch_size=batch_size, sync_dist=sync_dist)
+        self.precision(X_hat, Y)
+        self.log(f"{step}_precision", self.precision, batch_size=batch_size, sync_dist=sync_dist)
+        self.recall(X_hat, Y)
+        self.log(f"{step}_recall", self.recall, batch_size=batch_size, sync_dist=sync_dist)
+        self.f1(X_hat, Y)
+        self.log(f"{step}_f1", self.f1, batch_size=batch_size, sync_dist=sync_dist)
+
+        return loss
+
+    def training_step(self, train_batch, batch_idx):
+        X, tags, Y = train_batch
+
+        x_hat = self(X, tags)
+
+        return self.compute_loss(Y=Y, X_hat=x_hat, step="train")
+
+    def validation_step(self, val_batch, batch_idx):
+        
+        X, tags, Y = val_batch
+
+        x_hat = self(X, tags) 
+
+        return self.compute_loss(Y=Y, X_hat=x_hat, step="val", sync_dist=True)
+
+    def test_step(self, test_batch, batch_idx):
+        X, tags, Y = test_batch
+
+        x_hat = self(X, tags) 
+
+        return self.compute_loss(Y=Y, X_hat=x_hat, step="test", sync_dist=True)
+
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        
+        """
+        Forwards an image through the spatial encoder, obtaining the latent mean and sigma representations.
+
+        Args:
+            x: BxCx[SPATIAL DIMS] tensor
+
+        """
+        z = []
+        for x_chunk in x.chunk(self.hparams.n_chunks_e, dim=2):            
+            z.append(self.encoder(x_chunk))
+        z = torch.cat(z, dim=2)
+
+        return z
+
+    def forward(self, x_sweeps: torch.tensor, sweeps_tags: torch.tensor):
+        
+        batch_size = x_sweeps.shape[0]
+        
+        # x_sweeps shape is B, N, C, T, H, W. N for number of sweeps ex. torch.Size([2, 2, 1, 200, 256, 256]) 
+        # tags shape torch.Size([2, 2])
+        Nsweeps = x_sweeps.shape[1] # Number of sweeps -> T
+
+        z = []
+        x_v = []
+
+        for n in range(Nsweeps):
+            x_sweeps_n = x_sweeps[:, n, :, :, :, :] # [BS, C, T, H, W]
+            
+            tag = sweeps_tags[:,n]            
+
+            z_ = self.encode(x_sweeps_n) # [BS, T, self.hparams.features]
+            z_ = z_.permute(0, 2, 1) # Permute the time dim with the output features. -> Shape is now [BS, T, F]
+
+            z_ = self.proj(z_) # [BS, T, self.hparams.embed_dim]
+
+            z_ = self.attn_chunk(z_) # [BS, self.hparams.n_chunks, self.hparams.features]
+
+            p_enc_z = self.p_encoding_z[tag]
+            
+            z_ = z_ + p_enc_z
+            z_ = self.mha(z_) # [BS, self.hparams.n_chunks, self.hparams.embed_dim]
+            z_ = z_ + p_enc_z
+            
+            z.append(z_)
+
+        z = torch.stack(z, dim=1) # [BS, N, self.hparams.n_chunks, 64*64*self.hparams.latent_channels]
+        z = z.view(batch_size, -1, self.hparams.embed_dim).contiguous()
+
+        # z = self.mha(z)
+        z, z_s = self.attn(z, z)
+        
+        x_hat = self.proj_final(z)
 
         return x_hat

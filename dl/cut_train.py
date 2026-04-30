@@ -1,8 +1,8 @@
 
 import argparse
 
-import os
 import sys
+import os
 
 import torch
 
@@ -14,11 +14,29 @@ from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.strategies import DDPStrategy
 
-from lightning.pytorch.loggers import NeptuneLogger
+from lightning.pytorch.loggers import MLFlowLogger
 
 from loaders import ultrasound_dataset as usd
 from nets import cut
 from callbacks import logger
+
+def _parse_kv_tags(pairs):
+    """
+    Parse a list like ["k=v", "foo=bar"] into a dict.
+    Ignores malformed entries rather than failing training.
+    """
+    if not pairs:
+        return None
+    tags = {}
+    for item in pairs:
+        if not isinstance(item, str) or "=" not in item:
+            continue
+        k, v = item.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            tags[k] = v
+    return tags or None
 
 def train(args, callbacks):
 
@@ -36,19 +54,28 @@ def train(args, callbacks):
     SAXINETS = getattr(cut, args.nn)
     model = SAXINETS(**args_d)
     
-    logger_neptune = None
-    if args.neptune_tags:
-        logger_neptune = NeptuneLogger(
-            project='ImageMindAnalytics/Cut',
-            tags=args.neptune_tags,
-            api_key=os.environ['NEPTUNE_API_TOKEN'],
-            log_model_checkpoints=False
+    logger_mlflow = None
+    mlflow_enabled = any(
+        [
+            args.mlflow_tracking_uri,
+            args.mlflow_experiment,
+            args.mlflow_run_name,
+            args.mlflow_tags,
+        ]
+    )
+    if mlflow_enabled:
+        logger_mlflow = MLFlowLogger(
+            tracking_uri=os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"),
+            experiment_name=args.mlflow_experiment,
+            run_name=args.mlflow_run_name,
+            tags=_parse_kv_tags(args.mlflow_tags),
         )
-        LOGGER = getattr(logger, args.logger)    
-        image_logger = LOGGER(**args_d)
-        callbacks.append(image_logger)
+        if args.logger:
+            LOGGER = getattr(logger, args.logger)
+            image_logger = LOGGER(**args_d)
+            callbacks.append(image_logger)
 
-    trainer = Trainer(logger=logger_neptune, 
+    trainer = Trainer(logger=logger_mlflow, 
         max_epochs=args.epochs, 
         log_every_n_steps=args.log_every_n_steps,
         callbacks=callbacks,devices=torch.cuda.device_count(), 
@@ -107,11 +134,11 @@ def get_argparse():
     ##Logger
     logger_group = parser.add_argument_group('Logger')
     logger_group.add_argument('--logger', type=str, help='Logger class name', default=None)
-    logger_group.add_argument('--log_every_n_steps', type=int, help='Log every n steps during training', default=10)    
+    logger_group.add_argument('--log_every_n_steps', type=int, help='Log every n steps during training', default=10)        
     
-    logger_group.add_argument('--neptune_project', type=str, help='Neptune project', default=None)
-    logger_group.add_argument('--neptune_tags', type=str, nargs='+', help='Neptune tags', default=None)
-    logger_group.add_argument('--neptune_token', type=str, help='Neptune token', default=None)
+    logger_group.add_argument('--mlflow_experiment', type=str, help='MLflow experiment name', default=None)
+    logger_group.add_argument('--mlflow_run_name', type=str, help='MLflow run name', default=None)
+    logger_group.add_argument('--mlflow_tags', type=str, nargs='+', help='MLflow tags as key=value pairs', default=None)
 
     return parser
 

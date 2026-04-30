@@ -23,6 +23,7 @@ import monai
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
+from PIL import Image
 
 from generative.networks import nets
 from generative.networks.schedulers import DDPMScheduler, DDIMScheduler
@@ -93,6 +94,52 @@ class CutG(LightningModule):
     def forward(self, X):
         return self.G(X)
 
+    def log_images(self, X, Y, Y_fake, Y_idt, step='train'):
+        # MLflow logging: MLFlowLogger.experiment is an MlflowClient and needs run_id.
+        # We log a few image grids as artifacts under an "images/" prefix.
+        if not getattr(self, "logger", None):
+            return
+
+        exp = getattr(self.logger, "experiment", None)
+        run_id = getattr(self.logger, "run_id", None)
+        if exp is None or run_id is None or not hasattr(exp, "log_image"):
+            return
+
+        def _grid_to_pil(t: torch.Tensor, nrow: int = 2) -> Image.Image:
+            # Accepts BCHW or CHW; returns RGB PIL.Image
+            if t is None:
+                return None
+            if t.dim() == 3:
+                t = t.unsqueeze(0)
+            t = t.detach()
+            if t.is_floating_point():
+                t = t.clamp(0, 1)
+            else:
+                t = t.float()
+                t = (t - t.min()) / (t.max() - t.min() + 1e-8)
+
+            # Make an image grid (CHW in [0,1])
+            grid = torchvision.utils.make_grid(t, nrow=nrow)
+            if grid.shape[0] == 1:
+                grid = grid.repeat(3, 1, 1)
+            elif grid.shape[0] > 3:
+                grid = grid[:3]
+
+            img = (grid * 255.0).round().byte().permute(1, 2, 0).cpu().numpy()
+            return Image.fromarray(img)
+
+        def _log_one(name: str, tensor: torch.Tensor, nrow: int = 2):
+            pil = _grid_to_pil(tensor, nrow=nrow)
+            if pil is None:
+                return
+            exp.log_image(run_id, pil, f"images/{step}/{name}_step{int(self.global_step):07d}.png")
+
+        _log_one("X", X, nrow=2)
+        _log_one("Y", Y, nrow=2)
+        _log_one("Y_fake", Y_fake, nrow=2)
+        if Y_idt is not None:
+            _log_one("Y_idt", Y_idt, nrow=2)
+
     # def scheduler_step(self):
     #     self.scheduler_disc.step()
     #     self.scheduler_gen.step()
@@ -140,6 +187,9 @@ class CutG(LightningModule):
         loss_g.backward()
         opt_gen.step()
         opt_head.step()
+
+        if (self.global_step % self.hparams.log_every_n_steps == 0):
+            self.log_images(X, Y, Y_fake, Y_idt, step='train')
 
     def validation_step(self, val_batch, batch_idx):
 

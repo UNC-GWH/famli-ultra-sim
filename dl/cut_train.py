@@ -57,7 +57,6 @@ def train(args, callbacks):
     logger_mlflow = None
     mlflow_enabled = any(
         [
-            args.mlflow_tracking_uri,
             args.mlflow_experiment,
             args.mlflow_run_name,
             args.mlflow_tags,

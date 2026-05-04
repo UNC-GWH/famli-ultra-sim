@@ -115,7 +115,7 @@ def get_argparse():
     hparams_group.add_argument('--seed_everything', help='Seed everything for training', type=int, default=None)
     hparams_group.add_argument('--find_unused_parameters', help='Find unused parameters', type=int, default=0)
     hparams_group.add_argument('--accumulate_grad_batches', help='Accumulate gradients over N batches', type=int, default=1)
-    hparams_group.add_argument('--matmul_precision', help='Precision', type=str, default='medium', options=['medium', 'high'])
+    hparams_group.add_argument('--matmul_precision', help='Precision', type=str, default='medium', choices=['medium', 'high'])
     
     
     input_group = parser.add_argument_group('Input')

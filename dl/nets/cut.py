@@ -132,7 +132,7 @@ class CutG(LightningModule):
             pil = _grid_to_pil(tensor, nrow=nrow)
             if pil is None:
                 return
-            exp.log_image(run_id, pil, f"images/{step}/{name}_step{int(self.global_step):07d}.png")
+            exp.log_image(run_id, pil, f"images/{step}/{name}.png")
 
         _log_one("X", X, nrow=2)
         _log_one("Y", Y, nrow=2)
@@ -202,6 +202,9 @@ class CutG(LightningModule):
             Y_idt = self.G(Y)           
 
         self.compute_G_loss(X, Y, Y_fake, Y_idt, sync_dist=True, step='val')
+
+        if (batch_idx == 0):
+            self.log_images(X, Y, Y_fake, Y_idt, step='val')
 
     def compute_D_loss(self, Y, Y_fake, sync_dist=False, step='train'):
         # Fake

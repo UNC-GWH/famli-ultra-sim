@@ -55,18 +55,11 @@ def train(args, callbacks):
     model = SAXINETS(**args_d)
     
     logger_mlflow = None
-    mlflow_enabled = any(
-        [
-            args.mlflow_experiment,
-            args.mlflow_run_name,
-            args.mlflow_tags,
-        ]
-    )
-    if mlflow_enabled:
+    
+    if args.mlflow_experiment:
         logger_mlflow = MLFlowLogger(
             tracking_uri=os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000"),
             experiment_name=args.mlflow_experiment,
-            run_name=args.mlflow_run_name,
             tags=_parse_kv_tags(args.mlflow_tags),
         )
         if args.logger:
@@ -81,10 +74,15 @@ def train(args, callbacks):
         accelerator="gpu", 
         strategy=DDPStrategy(find_unused_parameters=args.find_unused_parameters),
         gradient_clip_val=args.gradient_clip_val,
-        deterministic=deterministic)
+        deterministic=deterministic,
+        accumulate_grad_batches=args.accumulate_grad_batches,
+    )
     trainer.fit(model, datamodule=data, ckpt_path=args.model)
 
 def main(args):
+
+    torch.set_float32_matmul_precision(args.matmul_precision)
+    print(f"Matmul precision: {torch.get_float32_matmul_precision()}")
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.out,
@@ -116,6 +114,8 @@ def get_argparse():
     hparams_group.add_argument('--gradient_clip_val', help='Gradient clipping for the trainer', type=float, default=None)
     hparams_group.add_argument('--seed_everything', help='Seed everything for training', type=int, default=None)
     hparams_group.add_argument('--find_unused_parameters', help='Find unused parameters', type=int, default=0)
+    hparams_group.add_argument('--accumulate_grad_batches', help='Accumulate gradients over N batches', type=int, default=1)
+    hparams_group.add_argument('--matmul_precision', help='Precision', type=str, default='medium', options=['medium', 'high'])
     
     
     input_group = parser.add_argument_group('Input')
@@ -133,10 +133,8 @@ def get_argparse():
     ##Logger
     logger_group = parser.add_argument_group('Logger')
     logger_group.add_argument('--logger', type=str, help='Logger class name', default=None)
-    logger_group.add_argument('--log_every_n_steps', type=int, help='Log every n steps during training', default=10)        
-    
+    logger_group.add_argument('--log_every_n_steps', type=int, help='Log every n steps during training', default=10)
     logger_group.add_argument('--mlflow_experiment', type=str, help='MLflow experiment name', default=None)
-    logger_group.add_argument('--mlflow_run_name', type=str, help='MLflow run name', default=None)
     logger_group.add_argument('--mlflow_tags', type=str, nargs='+', help='MLflow tags as key=value pairs', default=None)
 
     return parser

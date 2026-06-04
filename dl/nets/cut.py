@@ -73,6 +73,8 @@ class CutG(LightningModule):
     def suggest_hyper_params(trial):
         """Suggests hyperparameters using an Optuna trial object for CutG."""
         return {
+            "betas_g": (trial.suggest_float("beta1_g", 0.0, 0.9), trial.suggest_float("beta2_g", 0.9, 0.999)),
+            "betas_d": (trial.suggest_float("beta1_d", 0.0, 0.9), trial.suggest_float("beta2_d", 0.9, 0.999)),
             "lr_g": trial.suggest_float("lr_g", 1e-5, 1e-3, log=True),
             "lr_d": trial.suggest_float("lr_d", 1e-6, 1e-4, log=True),
             "adv_w": trial.suggest_float("adv_w", 0.1, 10.0, log=True),

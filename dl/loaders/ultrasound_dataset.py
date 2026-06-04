@@ -2241,7 +2241,7 @@ class USCutDatasetBlindSweep(Dataset):
         self.img_column = img_column        
         self.continous_frames = continous_frames
         self.num_frames = num_frames
-        self.num_samples = num_samples
+        self.num_samples = num_samples        
 
     def __len__(self):
         return self.num_samples
@@ -2328,8 +2328,8 @@ class CutDataModuleBlindSweep(LightningDataModule):
         
         # Datasets and loaders
         group.add_argument('--mount_point', type=str, default="./", help="Mount point for the data")
-        group.add_argument('--csv_train', type=str, action='append', required=True, help="Path to the parquet file containing the image paths. Must contain column file_path")
-        group.add_argument('--csv_valid', type=str, action='append', required=True, help="Path to the parquet file containing the image paths")        
+        group.add_argument('--csv_train', type=str, nargs='+', required=True, help="Path to the parquet file containing the image paths. Must contain column file_path")
+        group.add_argument('--csv_valid', type=str, nargs='+', required=True, help="Path to the parquet file containing the image paths")        
         group.add_argument('--img_column', type=str, default="file_path")        
         group.add_argument('--batch_size', type=int, default=8, help="Batch size for the train dataloaders")
         group.add_argument('--num_frames', type=int, default=10, help="Number of frames to sample from each cine")
@@ -2342,7 +2342,7 @@ class CutDataModuleBlindSweep(LightningDataModule):
         return parent_parser        
 
     def setup(self, stage=None):
-        # Assign train/val datasets for use in dataloaders
+        # Assign train/val datasets for use in dataloaders        
         self.train_ds = USCutDatasetBlindSweep(self.dfs_train, self.hparams.mount_point, img_column=self.hparams.img_column, num_frames=self.hparams.num_frames, num_samples=self.hparams.num_samples_train)
         self.val_ds = USCutDatasetBlindSweep(self.dfs_valid, self.hparams.mount_point, img_column=self.hparams.img_column, num_frames=self.hparams.num_frames, num_samples=self.hparams.num_samples_val)
 

@@ -78,6 +78,7 @@ def train(args, callbacks):
         gradient_clip_val=args.gradient_clip_val,
         deterministic=deterministic,
         accumulate_grad_batches=args.accumulate_grad_batches,
+        limit_train_batches=args.steps if args.steps is not None else 1.0
     )
     trainer.fit(model, datamodule=data, ckpt_path=args.model)
 
@@ -122,13 +123,13 @@ def get_argparse():
 
     hparams_group = parser.add_argument_group('Hyperparameters')
     hparams_group.add_argument('--epochs', help='Max number of epochs', type=int, default=200)
-    hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)
-    hparams_group.add_argument('--steps', help='Max number of steps per epoch', type=int, default=-1)
+    hparams_group.add_argument('--patience', help='Max number of patience for early stopping', type=int, default=30)    
     hparams_group.add_argument('--gradient_clip_val', help='Gradient clipping for the trainer', type=float, default=None)
     hparams_group.add_argument('--seed_everything', help='Seed everything for training', type=int, default=None)
     hparams_group.add_argument('--find_unused_parameters', help='Find unused parameters', type=int, default=0)
     hparams_group.add_argument('--accumulate_grad_batches', help='Accumulate gradients over N batches', type=int, default=1)
     hparams_group.add_argument('--matmul_precision', help='Precision', type=str, default='medium', choices=['medium', 'high'])
+    hparams_group.add_argument('--steps', help='Max number of training steps', type=int, default=None)
     
     
     input_group = parser.add_argument_group('Input')

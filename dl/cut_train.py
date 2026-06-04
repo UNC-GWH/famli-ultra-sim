@@ -3,6 +3,7 @@ import argparse
 
 import sys
 import os
+import json
 
 import torch
 
@@ -19,6 +20,7 @@ from lightning.pytorch.loggers import MLFlowLogger
 from loaders import ultrasound_dataset as usd
 from nets import cut
 from callbacks import logger
+from callbacks.best_metric import BestMetricTracker
 
 def _parse_kv_tags(pairs):
     """
@@ -79,6 +81,13 @@ def train(args, callbacks):
     )
     trainer.fit(model, datamodule=data, ckpt_path=args.model)
 
+    # Write the best monitored metric to file (for the Optuna subprocess)
+    if getattr(args, 'write_metric', None) and trainer.strategy.global_rank == 0:
+        best_tracker = next((cb for cb in callbacks if isinstance(cb, BestMetricTracker)), None)
+        if best_tracker is not None and best_tracker.best is not None:
+            with open(args.write_metric, 'w') as f:
+                json.dump({best_tracker.monitor: best_tracker.best}, f)
+
 def main(args):
 
     torch.set_float32_matmul_precision(args.matmul_precision)
@@ -86,22 +95,26 @@ def main(args):
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=args.out,
-        filename='{epoch}-{val_loss:.2f}',
+        filename='{epoch}-{' + args.monitor + ':.2f}',
         save_top_k=4,
-        monitor='val_loss',
+        monitor=args.monitor,
+        mode=args.monitor_mode,
         save_last=bool(args.save_last)
     )
-    
+
     # Early Stopping
     early_stop_callback = EarlyStopping(
-        monitor="val_loss", 
-        min_delta=0.00, 
-        patience=args.patience, 
-        verbose=True, 
-        mode="min"
+        monitor=args.monitor,
+        min_delta=0.00,
+        patience=args.patience,
+        verbose=True,
+        mode=args.monitor_mode
     )
 
-    train(args, [checkpoint_callback, early_stop_callback])
+    callbacks = [checkpoint_callback, early_stop_callback]
+    callbacks.append(BestMetricTracker(monitor=args.monitor, mode=args.monitor_mode))
+
+    train(args, callbacks)
 
 
 def get_argparse():
@@ -128,7 +141,9 @@ def get_argparse():
     output_group.add_argument('--out', help='Output directory', type=str, default="./")
     output_group.add_argument('--use_early_stopping', help='Use early stopping criteria', type=int, default=0)
     output_group.add_argument('--save_last', help='Save last checkpoint as well', type=int, default=0)
-    # output_group.add_argument('--monitor', help='Additional metric to monitor to save checkpoints', type=str, default=None)
+    output_group.add_argument('--monitor', help='Metric to monitor to save checkpoints', type=str, default='val_loss')
+    output_group.add_argument('--monitor_mode', help='Mode for the monitored metric', type=str, default='min', choices=['min', 'max'])
+    output_group.add_argument('--write_metric', help='Write monitored metric to file (for Optuna subprocess)', type=str, default=None)
     
     ##Logger
     logger_group = parser.add_argument_group('Logger')

@@ -69,19 +69,31 @@ class CutG(LightningModule):
 
         return parent_parser
 
+    @staticmethod
+    def suggest_hyper_params(trial):
+        """Suggests hyperparameters using an Optuna trial object for CutG."""
+        return {
+            "lr_g": trial.suggest_float("lr_g", 1e-5, 1e-3, log=True),
+            "lr_d": trial.suggest_float("lr_d", 1e-6, 1e-4, log=True),
+            "adv_w": trial.suggest_float("adv_w", 0.1, 10.0, log=True),
+            "temperature": trial.suggest_float("temperature", 0.01, 0.5, log=True),
+            "weight_decay_g": trial.suggest_float("weight_decay_g", 1e-4, 1e-1, log=True),
+            "weight_decay_d": trial.suggest_float("weight_decay_d", 1e-4, 1e-1, log=True),
+        }
+
     def configure_optimizers(self):
         opt_gen = optim.AdamW(
             self.G.parameters(),
             lr=self.hparams.lr_g,
             betas=self.hparams.betas_g,
-            weight_decay=self.hparams.weight_decay_g            
+            weight_decay=self.hparams.weight_decay_g
         )
         opt_disc = optim.AdamW(
             self.D_Y.parameters(),
             lr=self.hparams.lr_d,
             betas=self.hparams.betas_d,
             weight_decay=self.hparams.weight_decay_d
-        )        
+        )
         opt_head = optim.AdamW(
             self.H.parameters(),
             lr=self.hparams.lr_g,
@@ -298,6 +310,18 @@ class ConditionalCutG(LightningModule):
         hparams_group.add_argument('--num_classes', help='Number of classes for conditioning', type=int, default=4)
 
         return parent_parser
+
+    @staticmethod
+    def suggest_hyper_params(trial):
+        """Suggests hyperparameters using an Optuna trial object for ConditionalCutG."""
+        return {
+            "lr_g": trial.suggest_float("lr_g", 1e-5, 1e-3, log=True),
+            "lr_d": trial.suggest_float("lr_d", 1e-6, 1e-4, log=True),
+            "adv_w": trial.suggest_float("adv_w", 0.1, 10.0, log=True),
+            "temperature": trial.suggest_float("temperature", 0.01, 0.5, log=True),
+            "weight_decay_g": trial.suggest_float("weight_decay_g", 1e-4, 1e-1, log=True),
+            "weight_decay_d": trial.suggest_float("weight_decay_d", 1e-4, 1e-1, log=True),
+        }
 
 
     def configure_optimizers(self):

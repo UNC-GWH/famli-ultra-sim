@@ -61,7 +61,7 @@ class CutG(LightningModule):
         hparams_group.add_argument('--betas_d', help='Betas for dicriminator optimizer', nargs='+', type=float, default=(0.9, 0.999))            
         hparams_group.add_argument('--weight_decay_g', help='Weight decay for generator optimizer', type=float, default=0.01)
         hparams_group.add_argument('--weight_decay_d', help='Weight decay for discriminator optimizer', type=float, default=0.01)
-        hparams_group.add_argument('--adv_w', help='Weight for the Adversarial generator loss', type=float, default=1.0)
+        hparams_group.add_argument('--adv_w', help='Weight for the Adversarial generator loss', type=float, default=10.0)
         hparams_group.add_argument('--temperature', help='controls smoothness in NCE_loss a.k.a. temperature', type=float, default=0.07)
         hparams_group.add_argument('--lambda_y', help='CUT model will compute the identity and calculate_NCE_loss', type=int, default=1)
 
@@ -76,8 +76,7 @@ class CutG(LightningModule):
             "betas_g": (trial.suggest_float("beta1_g", 0.0, 0.9), trial.suggest_float("beta2_g", 0.9, 0.999)),
             "betas_d": (trial.suggest_float("beta1_d", 0.0, 0.9), trial.suggest_float("beta2_d", 0.9, 0.999)),
             "lr_g": trial.suggest_float("lr_g", 1e-5, 1e-3, log=True),
-            "lr_d": trial.suggest_float("lr_d", 1e-6, 1e-4, log=True),
-            "adv_w": trial.suggest_float("adv_w", 0.1, 10.0, log=True),
+            "lr_d": trial.suggest_float("lr_d", 1e-6, 1e-4, log=True),            
             "temperature": trial.suggest_float("temperature", 0.01, 0.5, log=True),
             "weight_decay_g": trial.suggest_float("weight_decay_g", 1e-4, 1e-1, log=True),
             "weight_decay_d": trial.suggest_float("weight_decay_d", 1e-4, 1e-1, log=True),

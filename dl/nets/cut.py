@@ -56,9 +56,9 @@ class CutG(LightningModule):
 
         hparams_group = parent_parser.add_argument_group('CutG')
         hparams_group.add_argument('--lr_g', default=1e-4, type=float, help='Learning rate generator')
-        hparams_group.add_argument('--lr_d', default=1e-5, type=float, help='Learning rate for discriminator')
+        hparams_group.add_argument('--lr_d', default=1e-6, type=float, help='Learning rate for discriminator')
         hparams_group.add_argument('--betas_g', help='Betas for generator optimizer', nargs='+', type=float, default=(0.5, 0.999))            
-        hparams_group.add_argument('--betas_d', help='Betas for dicriminator optimizer', nargs='+', type=float, default=(0.9, 0.999))            
+        hparams_group.add_argument('--betas_d', help='Betas for dicriminator optimizer', nargs='+', type=float, default=(0.5, 0.999))            
         hparams_group.add_argument('--weight_decay_g', help='Weight decay for generator optimizer', type=float, default=0.01)
         hparams_group.add_argument('--weight_decay_d', help='Weight decay for discriminator optimizer', type=float, default=0.01)
         hparams_group.add_argument('--adv_w', help='Weight for the Adversarial generator loss', type=float, default=10.0)
